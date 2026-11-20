@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <radialGradient id="g" cx="50%" cy="40%" r="65%"><stop offset="0" stop-color="#0d2a5c"/><stop offset="1" stop-color="#04060c"/></radialGradient>
+    <filter id="f" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="10" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <rect width="512" height="512" fill="url(#g)"/>
+  <g fill="none" stroke="#49c6ff" stroke-width="14" filter="url(#f)">
+    <path d="M96 150V96h54M416 150V96h-54M96 362v54h54M416 362v54h-54"/>
+  </g>
+  <g filter="url(#f)">
+    <path d="M256 120 L300 300 L256 270 L212 300 Z" fill="#49c6ff"/>
+    <path d="M180 330 H332 L316 360 H196 Z" fill="#49c6ff"/>
+    <path d="M226 372 h60 l-30 40 z" fill="#b47cff"/>
+  </g>
+</svg>
