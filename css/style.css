@@ -266,3 +266,30 @@ body.onboarding #app { padding-bottom: 24px; }
   *, *::before, *::after { animation: none !important; transition: none !important; }
   .res-bar i { width: var(--w); }
 }
+
+/* ---------- statut de personnalité & avatar ---------- */
+.persona { text-align: center; border-color: color-mix(in srgb, var(--c) 60%, transparent); }
+.persona::before, .persona::after { border-color: var(--c); filter: drop-shadow(0 0 4px var(--c)); }
+.av-wrap { width: 190px; margin: 0 auto 6px; }
+.av-wrap.sm { width: 150px; }
+.avatar { display: block; width: 100%; height: auto; overflow: visible; }
+.av-aura { transform-origin: 100px 118px; animation: aura 3.2s ease-in-out infinite; }
+@keyframes aura { 50% { transform: scale(1.05); opacity: .55; } }
+.av-p { animation: twinkle 2.8s ease-in-out infinite; }
+@keyframes twinkle { 50% { opacity: .1; } }
+.av-f { animation: float 3s ease-in-out infinite; }
+@keyframes float { 50% { transform: translateY(-5px); } }
+.av-eyes { animation: blink 5s infinite; transform-origin: 100px 88px; }
+@keyframes blink { 0%, 96%, 100% { transform: scaleY(1); } 98% { transform: scaleY(.1); } }
+.av-h { animation: twinkle 3.5s ease-in-out infinite; }
+.p-title { font-size: 22px; font-weight: 900; letter-spacing: .06em; color: #fff; text-shadow: 0 0 12px var(--c); }
+.p-cls { font-size: 12px; color: var(--c); font-family: var(--mono); letter-spacing: .08em; margin-top: 2px; }
+.p-desc { color: var(--muted); font-size: 13.5px; margin: 10px 4px; }
+.p-traits { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-bottom: 12px; }
+.p-traits span { font-size: 11.5px; padding: 3px 10px; border: 1px solid color-mix(in srgb, var(--c) 55%, transparent); color: var(--c); border-radius: 20px; }
+.ladder { display: flex; justify-content: center; gap: 6px; margin-bottom: 8px; }
+.lad { width: 30px; height: 30px; display: grid; place-items: center; font-family: var(--mono); font-weight: 900; border: 1px solid rgba(138, 165, 198, .3); color: rgba(138, 165, 198, .45); }
+.lad.past { color: var(--c); border-color: color-mix(in srgb, var(--c) 40%, transparent); }
+.lad.on { color: #fff; background: color-mix(in srgb, var(--c) 30%, transparent); border-color: var(--c); box-shadow: 0 0 12px var(--c); }
+.window.note.locked { color: #ffb3c0; }
+.btn:disabled { cursor: not-allowed; }

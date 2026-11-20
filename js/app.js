@@ -6,6 +6,8 @@
 (function () {
   'use strict';
   const { DIFF, PERIOD, DOMAINS, CATALOG, PENALTIES } = window.GAME;
+  const { CLASSES, avatar } = window.PERSONA;
+  const REGEN_COOLDOWN = 7; // jours entre deux régénérations complètes
   const QUESTIONS = window.QUESTIONS;
   const KEY = 'leveling.system.v1';
   const DKEYS = ['sport', 'finance', 'relation'];
@@ -60,12 +62,23 @@
     domains: { sport: { level: 0, xp: 0, base: 0 }, finance: { level: 0, xp: 0, base: 0 }, relation: { level: 0, xp: 0, base: 0 } },
     quests: [], penalties: [], log: [],
     streak: 0, lastFullDay: '', bonus: null, totalXp: 0,
-    settings: { pause: false }
+    settings: { pause: false },
+    changes: { day: '', add: 0, rem: 0, removedDone: [] },
+    setupDay: '', lastRegen: '', persona: ''
   });
   let state;
   function load() {
     try { const raw = localStorage.getItem(KEY); state = raw ? Object.assign(fresh(), JSON.parse(raw)) : fresh(); }
     catch (e) { state = fresh(); }
+    migrate();
+  }
+  // Mise à niveau des sauvegardes existantes : on ajoute les nouveaux champs sans rien effacer.
+  function migrate() {
+    const def = fresh();
+    state.settings = Object.assign(def.settings, state.settings || {});
+    state.changes = Object.assign(def.changes, state.changes || {});
+    if (state.calibrated && !state.setupDay) state.setupDay = dk(new Date()); // 1 journée de réglage libre après la mise à jour
+    if (state.calibrated && !state.persona) state.persona = personaKey();
   }
   function save() {
     try { localStorage.setItem(KEY, JSON.stringify(state)); }
@@ -96,6 +109,59 @@
   }
   const avgLevel = () => Math.round(DKEYS.reduce((s, d) => s + state.domains[d].level, 0) / 3);
   const globalRank = () => RANKS[tier(avgLevel())];
+
+  /* ---------------- statut de personnalité ---------------- */
+  function persona() {
+    const dom = DKEYS.slice().sort((a, b) => state.domains[b].level - state.domains[a].level)[0];
+    const r = tier(avgLevel());
+    return Object.assign({ dom, r, rank: RANKS[r], cls: CLASSES[dom].cls }, CLASSES[dom].tiers[r]);
+  }
+  function personaKey() { const p = persona(); return p.dom + ':' + p.r; }
+  function checkPersona() {
+    const k = personaKey();
+    if (state.persona && k !== state.persona) {
+      const p = persona();
+      overlayQueue.push({ type: 'persona' });
+      log('lvl', `Nouveau statut de personnalité : « ${p.t} » (${p.cls}, rang ${p.rank})`);
+    }
+    state.persona = k;
+  }
+
+  /* ---------------- limite de changement de quêtes ---------------- */
+  // 1 changement par jour = au plus 1 retrait + 1 ajout (donc 1 échange de quête).
+  function changes() {
+    const t = dk(new Date());
+    if (state.changes.day !== t) state.changes = { day: t, add: 0, rem: 0, removedDone: [] };
+    return state.changes;
+  }
+  const freeSetup = () => state.setupDay === dk(new Date());
+  const canAdd = () => freeSetup() || changes().add < 1;
+  const canRem = () => freeSetup() || changes().rem < 1;
+  function regenWait() {
+    if (freeSetup()) return 0;
+    const c = changes();
+    if (c.add || c.rem) return -1;
+    if (!state.lastRegen) return 0;
+    return Math.max(0, REGEN_COOLDOWN - cyclesBetween('daily', state.lastRegen, dk(new Date())));
+  }
+  function lockedMsg(kind) {
+    toast(`🔒 ${kind === 'add' ? 'Ajout' : 'Retrait'} de quête déjà utilisé aujourd'hui — reviens demain`, 'bad');
+  }
+  function removeQuest(q) {
+    const c = changes();
+    if (!freeSetup()) c.rem++;
+    if (q.done && q.cid) c.removedDone.push(q.cid);
+    state.quests = state.quests.filter((x) => x.id !== q.id);
+    log('info', `Quête retirée : « ${q.t} »`);
+  }
+  function addQuest(src) {
+    const c = changes();
+    if (!freeSetup()) c.add++;
+    const q = makeQuest(src);
+    if (q.cid && c.removedDone.includes(q.cid)) q.done = true; // pas de double XP en retirant / remettant une quête
+    state.quests.push(q);
+    log('info', `Quête ajoutée : « ${q.t} »`);
+  }
 
   /* ---------------- quêtes ---------------- */
   function makeQuest(src) {
@@ -131,6 +197,16 @@
     const now = new Date();
     const loss = { sport: 0, finance: 0, relation: 0 };
     const missed = [];
+    // Règle du tiers : on mesure la journée qui vient de se terminer AVANT de réinitialiser.
+    const curDay = cycleKey('daily', now);
+    const closedDaily = state.quests.filter((q) => q.p === 'daily' && q.cycle !== curDay);
+    let dayRatio = 1, dayDone = 0;
+    if (closedDaily.length) {
+      const skippedDays = closedDaily.some((q) => cyclesBetween('daily', q.cycle, curDay) > 1);
+      dayDone = skippedDays ? 0 : closedDaily.filter((q) => q.done).length;
+      dayRatio = dayDone / closedDaily.length;
+    }
+    const belowThird = closedDaily.length > 0 && dayRatio < 1 / 3 && !state.settings.pause;
     state.quests.forEach((q) => {
       const cur = cycleKey(q.p, now);
       if (q.cycle === cur) return;
@@ -165,14 +241,20 @@
     let pen = null;
     if (total > 0) {
       DKEYS.forEach((d) => { if (loss[d]) addXP(d, -loss[d]); });
-      const pick = PENALTIES[Math.floor(Math.random() * PENALTIES.length)];
-      pen = { id: uid(), t: pick.t, desc: pick.desc, created: now.getTime(), deadline: now.getTime() + PENALTY_DELAY, loss };
-      state.penalties.push(pen);
       missed.forEach((x) => log('fail', `Quête manquée : « ${x.t} »${x.m > 1 ? ' ×' + x.m : ''} (−${x.amt} XP ${DOMAINS[x.d].label})`));
-      log('pen', `Zone de pénalité : « ${pen.t} » à accomplir sous 24 h`);
     }
+    // Quête de pénalité : seulement si moins d'1/3 des quêtes du jour ont été validées.
+    if (belowThird) {
+      const pick = PENALTIES[Math.floor(Math.random() * PENALTIES.length)];
+      const stake = total > 0 ? loss : { sport: 30, finance: 30, relation: 30 };
+      pen = { id: uid(), t: pick.t, desc: pick.desc, created: now.getTime(), deadline: now.getTime() + PENALTY_DELAY, loss: stake,
+        reason: `${dayDone}/${closedDaily.length} quêtes du jour validées (minimum : ${Math.ceil(closedDaily.length / 3)})` };
+      state.penalties.push(pen);
+      log('pen', `Moins d'1/3 des quêtes validées (${dayDone}/${closedDaily.length}) → Zone de pénalité : « ${pen.t} »`);
+    }
+    checkPersona();
     save();
-    if (pen || failed.length) showPenaltyAlert(missed, pen, failed);
+    if (missed.length || pen || failed.length) showPenaltyAlert(missed, pen, failed);
   }
 
   function toggleQuest(id) {
@@ -190,6 +272,7 @@
       log('info', `Quête annulée : « ${q.t} » (−${q.xp} XP)`);
       if (q.p === 'daily') revokeDailyBonus();
     }
+    checkPersona();
     save(); render(); flushOverlays();
   }
 
@@ -229,6 +312,7 @@
     const sum = DKEYS.reduce((s, d) => s + back[d], 0);
     log('ok', `Pénalité accomplie : « ${p.t} » (+${sum} XP récupérée)`);
     toast(`Pénalité accomplie · +${sum} XP récupérée`, 'good');
+    checkPersona();
     save(); render(); flushOverlays();
   }
 
@@ -248,7 +332,9 @@
     const first = !state.calibrated;
     DKEYS.forEach((d) => { state.domains[d] = { level: stats[d], xp: 0, base: stats[d] }; });
     state.calibrated = true;
+    if (first) { state.setupDay = dk(new Date()); state.lastRegen = dk(new Date()); }
     if (first || !state.quests.length) applyRecommendation();
+    if (first) state.persona = personaKey(); else checkPersona();
     state.quests.forEach((q) => { q.cycle = cycleKey(q.p); });
     state.onboarding.step = 'result';
     log('info', `Évaluation terminée — Sport ${stats.sport} · Finance ${stats.finance} · Relation ${stats.relation}`);
@@ -297,8 +383,20 @@
     const doneD = dailies.filter((q) => q.done).length;
     const pen = state.penalties.length ? `<button class="window danger alert" data-act="tab" data-v="quests">⚠ ${state.penalties.length} quête(s) de pénalité en cours — accomplis-les avant la fin du délai</button>` : '';
     const pause = state.settings.pause ? '<div class="window note">⏸ Mode repos actif : aucune pénalité n\'est appliquée.</div>' : '';
+    const P = persona(), PC = DOMAINS[P.dom].color;
+    const ladder = CLASSES[P.dom].tiers.map((x, i) => `<span class="lad ${i === P.r ? 'on' : i < P.r ? 'past' : ''}" title="${esc(x.t)}">${RANKS[i]}</span>`).join('');
     return `
       ${pen}${pause}
+      <section class="window persona" style="--c:${PC}">
+        <div class="sys-head" style="color:${PC}">STATUT DE PERSONNALITÉ</div>
+        <div class="av-wrap">${avatar(P.dom, P.r, PC, 's')}</div>
+        <div class="p-title">${esc(P.t)}</div>
+        <div class="p-cls">Classe ${esc(P.cls)} · Rang <b class="rank-${P.rank}">${P.rank}</b> · Stat dominante : ${DOMAINS[P.dom].stat}</div>
+        <p class="p-desc">${esc(P.desc)}</p>
+        <div class="p-traits">${P.traits.map((t) => `<span>${esc(t)}</span>`).join('')}</div>
+        <div class="ladder">${ladder}</div>
+        ${P.r < 5 ? `<p class="center muted tiny">Prochain statut au rang ${RANKS[P.r + 1]} : « ${esc(CLASSES[P.dom].tiers[P.r + 1].t)} »</p>` : '<p class="center tiny glow">Statut ultime atteint.</p>'}
+      </section>
       <section class="window">
         <div class="sys-head">STATUT</div>
         <div class="status-top">
@@ -353,6 +451,7 @@
         <div class="sys-head red">QUÊTE DE PÉNALITÉ</div>
         <div class="pen-title">${esc(p.t)}</div>
         <p class="muted center">${esc(p.desc)}</p>
+        ${p.reason ? `<p class="center tiny" style="color:#ffb3c0">Motif : ${esc(p.reason)}</p>` : ''}
         <div class="pen-info"><span>Temps restant : <b class="cd" data-until="${p.deadline}">${fmtLeft(p.deadline - now)}</b></span><span>Réussite : +${Math.round(lost * PENALTY_RECOVER)} XP récupérée</span><span>Échec : −${lost} XP</span></div>
         <button class="btn red" data-act="penalty" data-id="${p.id}">Pénalité accomplie</button>
       </section>`;
@@ -367,7 +466,8 @@
         ${list.length ? list.map(questCard).join('') : '<p class="muted center">Aucune quête. Ajoute-en depuis le catalogue.</p>'}
       </section>`;
     }).join('');
-    const warn = state.quests.some((q) => q.p === 'daily' && !q.done) ? '<p class="warn">⚠ Avertissement : ne pas accomplir les quêtes avant la réinitialisation entraînera une pénalité.</p>' : '';
+    const dl = state.quests.filter((q) => q.p === 'daily'), dd = dl.filter((q) => q.done).length, need3 = Math.ceil(dl.length / 3);
+    const warn = dl.length ? `<p class="warn">${dd >= need3 ? '✔' : '⚠'} Quêtes du jour validées : <b>${dd}/${dl.length}</b> — minimum ${need3} pour éviter la Zone de pénalité. Chaque quête manquée coûte de l'XP.</p>` : '';
     return `${pens}<div class="chips">${chips}</div>${warn}${sections}`;
   }
 
@@ -385,26 +485,32 @@
           <div class="q-rank r-${c.r}">${c.r}</div>
           <div class="q-body"><div class="q-title">${esc(c.t)}</div>
             <div class="q-meta">${PERIOD[c.p].label} · +${questXP(c.r, c.p)} XP ${rec ? '· <span class="rec">recommandée</span>' : ''}</div></div>
-          <button class="btn sm ${on ? 'ghost' : ''}" data-act="cat" data-id="${c.cid}">${on ? 'Retirer' : 'Ajouter'}</button>
+          <button class="btn sm ${on ? 'ghost' : ''}" data-act="cat" data-id="${c.cid}" ${(on ? canRem() : canAdd()) ? '' : 'disabled'}>${on ? 'Retirer' : 'Ajouter'}</button>
         </div>`;
       }).join('');
       return `<section class="window" style="--c:${DOMAINS[d].color}"><div class="sys-head" style="color:${DOMAINS[d].color}">${DOMAINS[d].icon} ${DOMAINS[d].label.toUpperCase()} · NIV. ${lvl}</div>${rows}</section>`;
     }).join('');
     const chips = [['all', 'Tous'], ...DKEYS.map((d) => [d, DOMAINS[d].label])].map(([k, l]) => `<button class="chip ${ui.filter === k ? 'on' : ''}" data-act="filter" data-v="${k}">${l}</button>`).join('');
+    const c = changes(), rw = regenWait();
+    const tomorrow = nextReset('daily').getTime();
+    const lockInfo = freeSetup()
+      ? '<div class="window note">🛠 Journée de réglage : changements de quêtes illimités aujourd\'hui. À partir de demain : 1 changement par jour.</div>'
+      : `<div class="window note ${canAdd() || canRem() ? '' : 'locked'}">🔒 1 changement de quête par jour · Ajout ${c.add}/1 · Retrait ${c.rem}/1${canAdd() || canRem() ? '' : ` · Déblocage dans <b class="cd" data-until="${tomorrow}">${fmtLeft(tomorrow - Date.now())}</b>`}</div>`;
     return `
+      ${lockInfo}
       <section class="window">
         <div class="sys-head">CRÉER UNE QUÊTE</div>
         <form id="customForm" class="form">
           <input name="t" maxlength="90" placeholder="Intitulé de la quête" required>
           <div class="row3"><select name="d">${dSel}</select><select name="p">${pSel}</select></div>
           <select name="r">${rSel}</select>
-          <button class="btn" type="submit">Ajouter la quête</button>
+          <button class="btn" type="submit" ${canAdd() ? '' : 'disabled'}>Ajouter la quête</button>
         </form>
-        ${custom.length ? `<div class="sub">Tes quêtes personnalisées</div>${custom.map((q) => `<div class="cat-row on"><div class="q-rank r-${q.r}">${q.r}</div><div class="q-body"><div class="q-title">${esc(q.t)}</div><div class="q-meta">${DOMAINS[q.d].label} · ${PERIOD[q.p].label} · +${q.xp} XP</div></div><button class="btn sm ghost" data-act="del" data-id="${q.id}">Supprimer</button></div>`).join('')}` : ''}
+        ${custom.length ? `<div class="sub">Tes quêtes personnalisées</div>${custom.map((q) => `<div class="cat-row on"><div class="q-rank r-${q.r}">${q.r}</div><div class="q-body"><div class="q-title">${esc(q.t)}</div><div class="q-meta">${DOMAINS[q.d].label} · ${PERIOD[q.p].label} · +${q.xp} XP</div></div><button class="btn sm ghost" data-act="del" data-id="${q.id}" ${canRem() ? '' : 'disabled'}>Supprimer</button></div>`).join('')}` : ''}
       </section>
       <section class="window"><div class="sys-head">RECOMMANDATIONS</div>
-        <p class="muted">Le Système choisit des quêtes adaptées à ton niveau actuel dans chaque domaine (3 quotidiennes, 2 hebdomadaires et 1 mensuelle par domaine). Tes quêtes personnalisées sont conservées.</p>
-        <button class="btn" data-act="recommend">Régénérer les quêtes recommandées</button>
+        <p class="muted">Le Système choisit des quêtes adaptées à ton niveau actuel dans chaque domaine (3 quotidiennes, 2 hebdomadaires et 1 mensuelle par domaine). Tes quêtes personnalisées sont conservées. Possible une fois tous les ${REGEN_COOLDOWN} jours, à la place du changement du jour.</p>
+        <button class="btn" data-act="recommend" ${rw === 0 ? '' : 'disabled'}>${rw === 0 ? 'Régénérer les quêtes recommandées' : rw < 0 ? 'Indisponible : quêtes déjà modifiées aujourd\'hui' : `Régénération disponible dans ${rw} j`}</button>
       </section>
       <div class="chips">${chips}</div>
       ${groups}`;
@@ -544,6 +650,15 @@
   function flushOverlays() {
     if (document.querySelector('.modal') || !overlayQueue.length) return;
     const o = overlayQueue.shift(), M = DOMAINS[o.d];
+    if (o.type === 'persona') {
+      const P = persona(), PC = DOMAINS[P.dom].color;
+      modal(`<div class="lvlup" style="--c:${PC}"><div class="sys-head" style="color:${PC}">NOUVEAU STATUT</div>
+        <div class="av-wrap sm">${avatar(P.dom, P.r, PC, 'm')}</div>
+        <div class="p-title">${esc(P.t)}</div>
+        <div class="p-cls">Classe ${esc(P.cls)} · Rang ${P.rank}</div>
+        <p class="p-desc">${esc(P.desc)}</p></div>`, [{ label: 'Confirmer', primary: true }], 'levelup');
+      return;
+    }
     if (o.type === 'up') {
       modal(`<div class="lvlup" style="--c:${M.color}"><div class="lvlup-t">LEVEL UP!</div>
         <div class="lvlup-d">${M.icon} ${M.label.toUpperCase()}</div>
@@ -560,7 +675,8 @@
     modal(`<div class="sys-head red">AVERTISSEMENT</div>
       ${missed.length ? '<p class="center">Des quêtes n\'ont pas été accomplies dans le temps imparti.</p>' : ''}
       <ul class="pen-list">${list}${fl}</ul>
-      ${pen ? `<p class="center">Tu es transféré dans la <b class="red-t">ZONE DE PÉNALITÉ</b>.</p>
+      ${missed.length && !pen ? '<p class="center muted tiny">Tu as validé au moins 1/3 des quêtes du jour : pas de quête de pénalité, seulement la perte d\'XP.</p>' : ''}
+      ${pen ? `<p class="center">${esc(pen.reason)}.<br>Tu es transféré dans la <b class="red-t">ZONE DE PÉNALITÉ</b>.</p>
       <div class="pen-title">${esc(pen.t)}</div><p class="center muted">Délai : 24 h. Réussite : 50 % de l'XP perdue récupérée. Échec : la perte est appliquée une seconde fois.</p>` : ''}`,
     [{ label: 'Accepter', primary: true, red: true }], 'danger');
   }
@@ -613,14 +729,35 @@
       case 'cat': {
         const cid = el.dataset.id;
         const existing = state.quests.find((q) => q.cid === cid);
-        if (existing) state.quests = state.quests.filter((q) => q.cid !== cid);
-        else state.quests.push(makeQuest(CATALOG.find((c) => c.cid === cid)));
+        if (existing) {
+          if (!canRem()) { lockedMsg('rem'); break; }
+          const ok = await modal(`<div class="sys-head">RETIRER</div><p class="center">Retirer « ${esc(existing.t)} » ?</p><p class="center muted tiny">${freeSetup() ? 'Journée de réglage : changements illimités aujourd\'hui.' : 'Tu ne pourras plus retirer de quête avant demain.'}</p>`, [{ label: 'Retirer', primary: true }, { label: 'Annuler' }]);
+          if (ok !== 0) break;
+          removeQuest(existing);
+        } else {
+          if (!canAdd()) { lockedMsg('add'); break; }
+          addQuest(CATALOG.find((c) => c.cid === cid));
+          toast('Quête ajoutée', 'good');
+        }
         save(); render(); break;
       }
-      case 'del': state.quests = state.quests.filter((q) => q.id !== el.dataset.id); save(); render(); break;
+      case 'del': {
+        const q = state.quests.find((x) => x.id === el.dataset.id);
+        if (!q) break;
+        if (!canRem()) { lockedMsg('rem'); break; }
+        const ok = await modal(`<div class="sys-head">SUPPRIMER</div><p class="center">Supprimer « ${esc(q.t)} » ?</p><p class="center muted tiny">${freeSetup() ? 'Journée de réglage : changements illimités aujourd\'hui.' : 'Tu ne pourras plus retirer de quête avant demain.'}</p>`, [{ label: 'Supprimer', primary: true, red: true }, { label: 'Annuler' }]);
+        if (ok === 0) { removeQuest(q); save(); render(); }
+        break;
+      }
       case 'recommend': {
-        const ok = await modal('<div class="sys-head">RECOMMANDATIONS</div><p class="center">Remplacer les quêtes du catalogue par une nouvelle sélection adaptée à ton niveau ?</p>', [{ label: 'Régénérer', primary: true }, { label: 'Annuler' }]);
-        if (ok === 0) { applyRecommendation(); log('info', 'Quêtes recommandées régénérées'); save(); ui.tab = 'quests'; render(); }
+        const w = regenWait();
+        if (w !== 0) { toast(w < 0 ? '🔒 Tu as déjà modifié tes quêtes aujourd\'hui' : `🔒 Régénération disponible dans ${w} jour(s)`, 'bad'); break; }
+        const ok = await modal(`<div class="sys-head">RECOMMANDATIONS</div><p class="center">Remplacer les quêtes du catalogue par une nouvelle sélection adaptée à ton niveau ?</p><p class="center muted tiny">${freeSetup() ? 'Journée de réglage : gratuit aujourd\'hui.' : `Cela utilise le changement du jour et bloque la régénération pendant ${REGEN_COOLDOWN} jours.`}</p>`, [{ label: 'Régénérer', primary: true }, { label: 'Annuler' }]);
+        if (ok === 0) {
+          if (!freeSetup()) { const c = changes(); c.add = 1; c.rem = 1; }
+          state.lastRegen = dk(new Date());
+          applyRecommendation(); log('info', 'Quêtes recommandées régénérées'); save(); ui.tab = 'quests'; render();
+        }
         break;
       }
       case 'pause':
@@ -664,9 +801,8 @@
     if (f.id === 'customForm') {
       const t = f.t.value.trim().slice(0, 90);
       if (!t) return;
-      const q = makeQuest({ d: f.d.value, p: f.p.value, r: f.r.value, t, custom: true });
-      state.quests.push(q);
-      log('info', `Quête personnalisée créée : « ${t} »`);
+      if (!canAdd()) { lockedMsg('add'); return; }
+      addQuest({ d: f.d.value, p: f.p.value, r: f.r.value, t, custom: true });
       save(); toast('Quête ajoutée', 'good'); render();
     }
   });
