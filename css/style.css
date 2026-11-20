@@ -270,18 +270,19 @@ body.onboarding #app { padding-bottom: 24px; }
 /* ---------- statut de personnalité & avatar ---------- */
 .persona { text-align: center; border-color: color-mix(in srgb, var(--c) 60%, transparent); }
 .persona::before, .persona::after { border-color: var(--c); filter: drop-shadow(0 0 4px var(--c)); }
-.av-wrap {
-  width: 168px; margin: 2px auto 10px; padding: 10px;
-  background: radial-gradient(circle at 50% 60%, color-mix(in srgb, var(--c) 22%, transparent), transparent 70%), #060b18;
-  border: 3px solid color-mix(in srgb, var(--c) 70%, #000);
-  box-shadow: 0 0 0 3px #04060c, 0 0 0 5px color-mix(in srgb, var(--c) 35%, transparent), 0 0 18px color-mix(in srgb, var(--c) 40%, transparent);
-  image-rendering: pixelated;
-}
-.av-wrap.sm { width: 130px; }
+.av-wrap { width: 190px; margin: 0 auto 6px; }
+.av-wrap.sm { width: 150px; }
+.avatar { display: block; width: 100%; height: auto; overflow: visible; }
+.av-aura { transform-origin: 100px 118px; animation: aura 3.2s ease-in-out infinite; }
+@keyframes aura { 50% { transform: scale(1.05); opacity: .55; } }
+.av-p { animation: twinkle 2.8s ease-in-out infinite; }
+@keyframes twinkle { 50% { opacity: .1; } }
+.av-f { animation: float 3s ease-in-out infinite; }
+@keyframes float { 50% { transform: translateY(-5px); } }
+.av-eyes { animation: blink 5s infinite; transform-origin: 100px 88px; }
+@keyframes blink { 0%, 96%, 100% { transform: scaleY(1); } 98% { transform: scaleY(.1); } }
+.av-h { animation: twinkle 3.5s ease-in-out infinite; }
 .pix { display: block; width: 100%; height: auto; }
-.avatar { animation: bob 1.2s steps(2) infinite; }
-.avatar.r3 { filter: drop-shadow(0 0 3px var(--c)); }
-.avatar.r4, .avatar.r5 { filter: drop-shadow(0 0 4px var(--c)) drop-shadow(0 0 10px var(--c)); }
 @keyframes bob { 50% { transform: translateY(2%); } }
 
 /* ---------- boss ---------- */

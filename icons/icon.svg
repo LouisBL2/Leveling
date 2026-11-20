@@ -1,15 +1,51 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
-    <radialGradient id="g" cx="50%" cy="40%" r="65%"><stop offset="0" stop-color="#0d2a5c"/><stop offset="1" stop-color="#04060c"/></radialGradient>
-    <filter id="f" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="10" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <radialGradient id="bg" cx="50%" cy="55%" r="70%">
+      <stop offset="0" stop-color="#0f2f66"/>
+      <stop offset=".55" stop-color="#061331"/>
+      <stop offset="1" stop-color="#02040a"/>
+    </radialGradient>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#16213f"/>
+      <stop offset="1" stop-color="#03050b"/>
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="7" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="soft"><feGaussianBlur stdDeviation="14"/></filter>
   </defs>
-  <rect width="512" height="512" fill="url(#g)"/>
-  <g fill="none" stroke="#49c6ff" stroke-width="14" filter="url(#f)">
-    <path d="M96 150V96h54M416 150V96h-54M96 362v54h54M416 362v54h-54"/>
+
+  <rect width="512" height="512" fill="url(#bg)"/>
+
+  <!-- grille holographique -->
+  <g stroke="#49c6ff" stroke-opacity=".07" stroke-width="2">
+    <path d="M0 64H512M0 128H512M0 192H512M0 256H512M0 320H512M0 384H512M0 448H512"/>
+    <path d="M64 0V512M128 0V512M192 0V512M256 0V512M320 0V512M384 0V512M448 0V512"/>
   </g>
-  <g filter="url(#f)">
-    <path d="M256 120 L300 300 L256 270 L212 300 Z" fill="#49c6ff"/>
-    <path d="M180 330 H332 L316 360 H196 Z" fill="#49c6ff"/>
-    <path d="M226 372 h60 l-30 40 z" fill="#b47cff"/>
+
+  <!-- aura en flammes -->
+  <polygon fill="#1f8fff" opacity=".55" filter="url(#soft)"
+    points="256,92 278,150 316,104 318,170 372,140 352,204 414,196 372,250 420,280 362,292 392,340 330,330 330,420 182,420 182,330 120,340 150,292 92,280 140,250 98,196 160,204 140,140 194,170 196,104 234,150"/>
+  <polygon fill="#49c6ff" opacity=".35" filter="url(#soft)"
+    points="256,130 274,176 304,142 304,196 346,178 330,226 376,226 340,262 372,310 140,310 172,262 136,226 182,226 166,178 208,196 208,142 238,176"/>
+
+  <!-- silhouette encapuchonnée -->
+  <path d="M256 150 C 214 150 194 182 194 222 C 194 250 206 270 222 282 C 180 294 152 322 140 376 L 128 430 L 384 430 L 372 376 C 360 322 332 294 290 282 C 306 270 318 250 318 222 C 318 182 298 150 256 150 Z"
+    fill="url(#body)" stroke="#49c6ff" stroke-width="5" stroke-opacity=".9" filter="url(#glow)"/>
+  <ellipse cx="256" cy="230" rx="40" ry="46" fill="#000105"/>
+
+  <!-- yeux -->
+  <g filter="url(#glow)" fill="#7fdcff">
+    <ellipse cx="238" cy="232" rx="10" ry="4.5"/>
+    <ellipse cx="274" cy="232" rx="10" ry="4.5"/>
+  </g>
+
+  <!-- emblème -->
+  <path d="M256 330 L274 352 L256 386 L238 352 Z" fill="#49c6ff" filter="url(#glow)"/>
+
+  <!-- cadre "fenêtre système" -->
+  <g fill="none" stroke="#49c6ff" stroke-width="12" stroke-linecap="square" filter="url(#glow)">
+    <path d="M70 128V70H128M442 128V70H384M70 384V442H128M442 384V442H384"/>
   </g>
 </svg>

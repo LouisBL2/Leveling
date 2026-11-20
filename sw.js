@@ -1,9 +1,9 @@
 /* Service worker : permet l'usage hors connexion.
    Ne stocke QUE les fichiers de l'application, jamais tes données
    (elles restent dans le localStorage). Incrémente VERSION à chaque mise à jour. */
-const VERSION = 'leveling-v3';
+const VERSION = 'leveling-v4';
 const FILES = ['./', 'index.html', 'css/style.css', 'js/questions.js', 'js/quests.js', 'js/persona.js', 'js/bosses.js', 'js/app.js',
-  'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png'];
+  'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));

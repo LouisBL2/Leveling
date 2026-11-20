@@ -64,86 +64,91 @@
     return `<svg class="${cls || 'pix'}" viewBox="0 0 ${w} ${h}" shape-rendering="crispEdges" role="img" aria-label="Sprite">${out}</svg>`;
   }
   const blank = (w, h) => Array.from({ length: h }, () => Array(w).fill('.'));
-  const mirror = (half) => half.map((r) => (r + r.split('').reverse().join('')).split(''));
-  function stamp(g, rows, ox, oy) {
-    rows.forEach((r, y) => r.split('').forEach((ch, x) => {
-      if (ch !== '.' && g[oy + y] && g[oy + y][ox + x] !== undefined) g[oy + y][ox + x] = ch;
-    }));
-  }
-  const set = (g, x, y, ch) => { if (g[y] && g[y][x] !== undefined) g[y][x] = ch; };
-  const setM = (g, x, y, ch) => { set(g, x, y, ch); set(g, 31 - x, y, ch); };
 
-  // Corps de base (moitié gauche, symétrisée). 32 × 32.
-  const BODY = [
-    '................', '................', '................',
-    '..........KKKKKK', '........KKHHHHHH', '.......KHHHHHHHH', '......KHHHhHHHHH', '......KHHHHHHHHH',
-    '......KHHHHHHHHH', '......KHHSSSSSSS', '......KSSSEESSSS', '......KSSSEESSSS', '......KsSSSSSSSS',
-    '......KSSSSSSSSS', '.......KSSSSSSss', '........KKKSSSSS', '...........KKsss',
-    '........KKKKKCCC', '.......KCCCCCCCC', '......KCCKCCCCCC', '.....KCCKCCCCCCA', '.....KCCKCCCCCCA',
-    '.....KCCKCCCCCCC', '.....KSSKAAAAAAA', '.....KKKKPPPPPPP', '........KPPPPPPP',
-    '........KPPPPPK.', '........KPPPPPK.', '........KBBBBBK.', '.......KBBBBBBK.', '.......KKKKKKKK.', '................'
-  ];
-  const WING = ['K....', 'LK...', 'LLK..', 'LLLK.', 'LLLLK', 'LLLLK', '.LLLK', '..LLK', '...LK'];
-  const SWORD = ['.W.', '.W.', '.W.', '.W.', '.W.', '.W.', '.W.', '.W.', '.W.', '.W.', '.W.', 'GGG', '.B.', '.B.'];
-  const BAG = ['..KK..', '.KGGK.', 'KGGGGK', 'KGWGGK', 'KGGGGK', '.KKKK.'];
-  const HEART = ['.KK.KK.', 'KAAKAAK', 'KAWAAAK', '.KAAAK.', '..KAK..', '...K...'];
-
-  const CLASS_PAL = {
-    sport: { C: '#1d6fd1', c: '#4dd0ff', A: '#4dd0ff', P: '#1a2a55', B: '#eef3ff', H: '#1f2433', h: '#3b4466', R: '#123d7a' },
-    finance: { C: '#1b2440', c: '#2e3b66', A: '#ffcf5c', P: '#1b2440', B: '#3b2416', H: '#2b1d14', h: '#5a3d28', R: '#3d2a6b', W: '#e9eef7' },
-    relation: { C: '#8a2d6b', c: '#c04a95', A: '#ff6fb5', P: '#2b2140', B: '#3b2416', H: '#4a2418', h: '#7a3b25', R: '#5c1a45' }
-  };
-
-  function avatar(domain, rankIdx, color) {
+  /* --- avatar SVG --- */
+  function avatar(domain, rankIdx, color, uidSuffix) {
     const r = Math.max(0, Math.min(5, rankIdx));
-    const pal = Object.assign({ K: '#0a0d18', S: '#f1c27d', s: '#d9a066', G: '#ffd34d', W: '#f4f8ff', L: '#e8f4ff', E: r < 2 ? '#1b1b2b' : color }, CLASS_PAL[domain]);
-    if (r === 0) Object.assign(pal, { C: '#4a4f5c', c: '#5c6270', A: '#6b7280', P: '#2a2e38', R: '#333' });
-    const g = blank(32, 32);
+    const rk = RANKS[r], rc = RANK_COLORS[rk], c = color;
+    const id = 'av' + (uidSuffix || '') + domain + r;
+    const cx = 100;
 
-    // ailes (S)
-    if (r >= 5) { stamp(g, WING, 0, 12); stamp(g, WING.map((x) => x.split('').reverse().join('')), 27, 12); }
-    // cape (B+)
-    if (r >= 3) for (let y = 18; y <= 29; y++) { const sp = Math.floor((y - 18) / 3); for (let x = 5 - sp; x <= 26 + sp; x++) set(g, x, y, 'R'); }
-
-    // corps
-    const body = mirror(BODY);
-    body.forEach((row, y) => row.forEach((ch, x) => { if (ch !== '.') g[y][x] = ch; }));
-
-    // variantes de classe
-    if (domain === 'sport') {
-      for (let x = 7; x <= 24; x++) if (g[8][x] === 'H') g[8][x] = 'A';            // bandeau
-      for (let y = 21; y <= 22; y++) [6, 7, 24, 25].forEach((x) => { if (g[y][x] === 'C') g[y][x] = 'S'; }); // bras nus
-      for (let y = 26; y <= 27; y++) for (let x = 9; x <= 22; x++) if (g[y][x] === 'P') g[y][x] = 'S';   // short
-      for (let y = 20; y <= 21; y++) { set(g, 15, y, 'c'); set(g, 16, y, 'c'); }
-    } else if (domain === 'finance') {
-      [13, 14, 17, 18].forEach((x) => { set(g, x, 17, 'W'); });
-      for (let y = 18; y <= 22; y++) { set(g, 15, y, 'A'); set(g, 16, y, 'A'); }
-      [9, 10, 11, 12].forEach((x) => setM(g, x, 10, g[10][x] === 'E' ? 'E' : 'K')); // lunettes
-    } else {
-      for (let x = 9; x <= 22; x++) { if ('CK'.includes(g[17][x])) g[17][x] = 'A'; if (g[18][x] === 'C') g[18][x] = 'A'; }
-      for (let y = 9; y <= 16; y++) { setM(g, 5, y, 'K'); setM(g, 6, y, 'H'); }       // cheveux longs
+    // aura en flammes : plus de pointes et plus haute avec le rang
+    const spikes = 8 + r * 3, inner = 62, outer = 70 + r * 7;
+    let aura = '';
+    for (let i = 0; i < spikes * 2; i++) {
+      const a = (i / (spikes * 2)) * Math.PI * 2 - Math.PI / 2;
+      const rad = i % 2 ? inner : outer + (i % 4 === 0 ? r * 3 : 0);
+      aura += `${(cx + Math.cos(a) * rad).toFixed(1)},${(118 + Math.sin(a) * rad * 1.05).toFixed(1)} `;
     }
-    // contraste des vêtements
-    for (let y = 19; y <= 22; y++) setM(g, 10, y, g[y][10] === 'C' ? 'c' : g[y][10]);
 
-    // objet de classe (C+)
+    // particules (rang B+)
+    let parts = '';
     if (r >= 2) {
-      if (domain === 'sport') stamp(g, SWORD, 27, 9);
-      else if (domain === 'finance') stamp(g, BAG, 0, 22);
-      else stamp(g, HEART, 25, 18);
+      const n = (r - 1) * 5;
+      for (let i = 0; i < n; i++) {
+        const a = (i * 137.5 * Math.PI) / 180, d = 50 + ((i * 29) % 45);
+        parts += `<circle cx="${(cx + Math.cos(a) * d).toFixed(1)}" cy="${(118 + Math.sin(a) * d).toFixed(1)}" r="${1 + (i % 3) * 0.6}" fill="${i % 2 ? c : rc}" opacity="${0.4 + (i % 4) * 0.15}" class="av-p" style="animation-delay:${(i % 7) * 0.4}s"/>`;
+      }
     }
-    // épaulières (B+)
-    if (r >= 3) [[7, 17], [8, 17], [6, 18], [7, 18]].forEach(([x, y]) => setM(g, x, y, 'G'));
+
+    // arme / attribut de classe (rang C+)
+    let gear = '';
+    if (r >= 2) {
+      if (domain === 'sport') {
+        gear = `<g filter="url(#${id}g)"><path d="M150 40 L158 44 L120 160 L114 157 Z" fill="${c}" opacity=".9"/><path d="M108 150 L128 160 M112 168 L122 152" stroke="${c}" stroke-width="5" stroke-linecap="round"/></g>`;
+      } else if (domain === 'finance') {
+        const coins = [[52, 70], [150, 78], [42, 120], [160, 128]].slice(0, r);
+        gear = coins.map(([x, y], i) => `<g class="av-f" style="animation-delay:${i * 0.6}s" filter="url(#${id}g)"><circle cx="${x}" cy="${y}" r="9" fill="none" stroke="${c}" stroke-width="2.5"/><text x="${x}" y="${y + 4}" text-anchor="middle" font-size="11" font-weight="900" fill="${c}">€</text></g>`).join('');
+      } else {
+        const hs = [[50, 76], [152, 70], [158, 126], [44, 128]].slice(0, r);
+        gear = hs.map(([x, y], i) => `<path class="av-f" style="animation-delay:${i * 0.5}s" filter="url(#${id}g)" d="M${x} ${y + 6} l-8 -8 a5 5 0 0 1 8 -6 a5 5 0 0 1 8 6 z" fill="${c}"/>`).join('');
+      }
+    }
+
+    // ailes (rang S)
+    const wings = r >= 5 ? `<g opacity=".85" filter="url(#${id}g)" fill="none" stroke="${rc}" stroke-width="2.5">
+      <path d="M70 120 C 30 100 18 70 14 40 C 34 62 48 70 62 74 C 40 72 30 84 26 98 C 44 92 56 96 66 104"/>
+      <path d="M130 120 C 170 100 182 70 186 40 C 166 62 152 70 138 74 C 160 72 170 84 174 98 C 156 92 144 96 134 104"/></g>` : '';
+
+    // épaulières (rang B+)
+    const armor = r >= 3 ? `<path d="M58 132 Q 70 116 86 120 L 82 132 Z M142 132 Q 130 116 114 120 L 118 132 Z" fill="${c}" opacity=".75"/>` : '';
+
     // halo (A) / couronne (S)
-    if (r === 4) { for (let x = 11; x <= 20; x++) set(g, x, 1, 'G'); }
-    if (r >= 5) {
-      for (let x = 11; x <= 20; x++) set(g, x, 2, 'G');
-      [11, 13, 15, 16, 18, 20].forEach((x) => set(g, x, 1, 'G'));
-      [11, 15, 16, 20].forEach((x) => set(g, x, 0, 'G'));
-      set(g, 15, 2, 'A'); set(g, 16, 2, 'A');
-    }
-    return pixelSVG(g, pal, 'pix avatar r' + r);
+    let crown = '';
+    if (r >= 4) crown += `<ellipse cx="100" cy="42" rx="24" ry="6" fill="none" stroke="${rc}" stroke-width="2.5" filter="url(#${id}g)" class="av-h"/>`;
+    if (r >= 5) crown += `<path d="M82 36 L86 22 L93 31 L100 16 L107 31 L114 22 L118 36 Z" fill="${rc}" filter="url(#${id}g)"/>`;
+
+    // emblème de classe sur la poitrine
+    const s = 0.8 + r * 0.1;
+    const emb = {
+      sport: `<path d="M3 -12 L-6 2 L0 2 L-3 12 L6 -2 L0 -2 Z" />`,
+      finance: `<path d="M0 -11 L9 -3 L0 11 L-9 -3 Z" />`,
+      relation: `<path d="M0 9 l-9 -9 a5.5 5.5 0 0 1 9 -7 a5.5 5.5 0 0 1 9 7 z" />`
+    }[domain];
+
+    const eyeOp = 0.45 + r * 0.11;
+    const trail = r >= 4 ? `<path d="M110 88 Q 124 84 136 74" stroke="${c}" stroke-width="2" fill="none" opacity=".7" filter="url(#${id}g)"/>` : '';
+
+    return `<svg class="avatar" viewBox="0 0 200 220" role="img" aria-label="Avatar">
+      <defs>
+        <radialGradient id="${id}bg" cx="50%" cy="45%" r="60%"><stop offset="0" stop-color="${c}" stop-opacity="${0.18 + r * 0.06}"/><stop offset="1" stop-color="#04060c" stop-opacity="0"/></radialGradient>
+        <linearGradient id="${id}body" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#121b33"/><stop offset="1" stop-color="#05070e"/></linearGradient>
+        <filter id="${id}g" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+        <filter id="${id}blur"><feGaussianBlur stdDeviation="${3 + r}"/></filter>
+      </defs>
+      <circle cx="100" cy="112" r="98" fill="url(#${id}bg)"/>
+      <polygon points="${aura}" fill="${c}" opacity="${0.12 + r * 0.07}" filter="url(#${id}blur)" class="av-aura"/>
+      ${wings}${parts}
+      <path d="M100 48 C 78 48 68 64 68 84 C 68 98 74 108 82 114 C 60 120 46 134 40 162 L 34 214 L 166 214 L 160 162 C 154 134 140 120 118 114 C 126 108 132 98 132 84 C 132 64 122 48 100 48 Z"
+        fill="url(#${id}body)" stroke="${c}" stroke-width="${1 + r * 0.25}" stroke-opacity=".8"/>
+      <ellipse cx="100" cy="88" rx="20" ry="23" fill="#010205"/>
+      <g filter="url(#${id}g)" class="av-eyes"><ellipse cx="91" cy="88" rx="4.5" ry="2.2" fill="${c}" opacity="${eyeOp}"/><ellipse cx="109" cy="88" rx="4.5" ry="2.2" fill="${c}" opacity="${eyeOp}"/></g>
+      ${trail}${armor}${gear}${crown}
+      <g transform="translate(100 164) scale(${s})" fill="${c}" filter="url(#${id}g)">${emb}</g>
+      <circle cx="100" cy="112" r="98" fill="none" stroke="${rc}" stroke-width="2" stroke-opacity=".6"/>
+    </svg>`;
   }
+
 
   /* --- sprite de boss : monstre symétrique généré à partir de son nom --- */
   function bossSprite(name, color, big) {
