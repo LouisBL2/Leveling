@@ -292,8 +292,8 @@ body.onboarding #app { padding-bottom: 24px; }
 }
 .boss-row.ready { border: 1px solid var(--red); box-shadow: 0 0 12px rgba(255, 59, 92, .35), inset 0 0 12px rgba(255, 59, 92, .15); }
 .boss-row.cleared { justify-content: center; color: var(--gold); font-size: 12.5px; border-style: solid; }
-.boss-spr { width: 44px; flex-shrink: 0; image-rendering: pixelated; }
-.boss-row.big .boss-spr { width: 54px; }
+.boss-spr { width: 50px; flex-shrink: 0; }
+.boss-row.big .boss-spr { width: 60px; }
 .boss-row:not(.ready) .boss-spr { filter: brightness(.55) saturate(.6); }
 .boss-row.ready .boss-spr { animation: bob .8s steps(2) infinite; }
 .boss-info { flex: 1; min-width: 0; }
@@ -302,7 +302,7 @@ body.onboarding #app { padding-bottom: 24px; }
 .boss-name { font-weight: 800; font-size: 14px; }
 .boss-task { font-size: 12px; color: var(--muted); }
 .boss-meta { font-size: 11px; color: var(--muted); margin-top: 2px; font-family: var(--mono); }
-.boss-big { width: 120px; margin: 4px auto 8px; image-rendering: pixelated; filter: drop-shadow(0 0 10px rgba(255, 59, 92, .6)); }
+.boss-big { width: 150px; margin: 4px auto 8px; filter: drop-shadow(0 0 10px rgba(255, 59, 92, .6)); }
 .boss-big.shake { animation: shake .5s steps(4) 2; }
 @keyframes shake { 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
 .boss-big.dead { filter: grayscale(1) brightness(.6); opacity: .7; }
@@ -317,3 +317,13 @@ body.onboarding #app { padding-bottom: 24px; }
 .lad.on { color: #fff; background: color-mix(in srgb, var(--c) 30%, transparent); border-color: var(--c); box-shadow: 0 0 12px var(--c); }
 .window.note.locked { color: #ffb3c0; }
 .btn:disabled { cursor: not-allowed; }
+
+/* ---------- statut hybride ---------- */
+.persona.hybrid { border-image: var(--grad) 1; box-shadow: 0 0 22px rgba(255, 211, 77, .35), inset 0 0 24px rgba(255, 211, 77, .1); }
+.persona.hybrid::before, .persona.hybrid::after { border-color: #ffd34d; filter: drop-shadow(0 0 5px #ffd34d); }
+.hy-head { color: #ffd34d; }
+.hy-title { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; text-shadow: none; filter: drop-shadow(0 0 8px rgba(255, 255, 255, .25)); }
+.hy-badges { display: flex; justify-content: center; gap: 6px; margin: 8px 0 2px; flex-wrap: wrap; }
+.hy-badges span { font: 700 11px var(--mono); letter-spacing: .1em; padding: 3px 9px; color: var(--c); border: 1px solid var(--c); box-shadow: 0 0 8px color-mix(in srgb, var(--c) 50%, transparent); }
+.avatar.hybrid { filter: drop-shadow(0 0 6px rgba(255, 211, 77, .35)); }
+.boss-svg { display: block; width: 100%; height: auto; overflow: visible; }

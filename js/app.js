@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   const { DIFF, PERIOD, DOMAINS, CATALOG, PENALTIES } = window.GAME;
-  const { CLASSES, avatar, bossSprite } = window.PERSONA;
+  const { CLASSES, HYBRIDS, avatar, bossSprite } = window.PERSONA;
   const BOSSES = window.BOSSES;
   const REGEN_COOLDOWN = 7; // jours entre deux régénérations complètes
   const QUESTIONS = window.QUESTIONS;
@@ -144,18 +144,27 @@
   const globalRank = () => RANKS[tier(avgLevel())];
 
   /* ---------------- statut de personnalité ---------------- */
+  const S_LEVEL = 90; // rang S d'une stat
   function persona() {
-    const dom = DKEYS.slice().sort((a, b) => state.domains[b].level - state.domains[a].level)[0];
     const r = tier(avgLevel());
+    const sDoms = DKEYS.filter((d) => state.domains[d].level >= S_LEVEL);
+    if (sDoms.length >= 2) { // statut hybride
+      const key = sDoms.join('+');
+      return Object.assign({ hybrid: true, key, doms: sDoms, dom: sDoms[0], r, rank: RANKS[r] }, HYBRIDS[key]);
+    }
+    const dom = DKEYS.slice().sort((a, b) => state.domains[b].level - state.domains[a].level)[0];
     return Object.assign({ dom, r, rank: RANKS[r], cls: CLASSES[dom].cls }, CLASSES[dom].tiers[r]);
   }
-  function personaKey() { const p = persona(); return p.dom + ':' + p.r; }
+  function personaKey() { const p = persona(); return p.hybrid ? 'H:' + p.key : p.dom + ':' + p.r; }
+  function personaAvatar(P) {
+    return P.hybrid ? avatar(P.doms, 5, P.doms.map((d) => DOMAINS[d].color)) : avatar(P.dom, P.r, DOMAINS[P.dom].color);
+  }
   function checkPersona() {
     const k = personaKey();
     if (state.persona && k !== state.persona) {
       const p = persona();
       overlayQueue.push({ type: 'persona' });
-      log('lvl', `Nouveau statut de personnalité : « ${p.t} » (${p.cls}, rang ${p.rank})`);
+      log('lvl', `Nouveau statut de personnalité : « ${p.t} » (${p.cls}${p.hybrid ? ', hybride' : ', rang ' + p.rank})`);
     }
     state.persona = k;
   }
@@ -418,19 +427,38 @@
     const pen = state.penalties.length ? `<button class="window danger alert" data-act="tab" data-v="quests">⚠ ${state.penalties.length} quête(s) de pénalité en cours — accomplis-les avant la fin du délai</button>` : '';
     const pause = state.settings.pause ? '<div class="window note">⏸ Mode repos actif : aucune pénalité n\'est appliquée.</div>' : '';
     const P = persona(), PC = DOMAINS[P.dom].color;
-    const ladder = CLASSES[P.dom].tiers.map((x, i) => `<span class="lad ${i === P.r ? 'on' : i < P.r ? 'past' : ''}" title="${esc(x.t)}">${RANKS[i]}</span>`).join('');
-    return `
-      ${pen}${pause}
-      <section class="window persona" style="--c:${PC}">
+    let personaHtml;
+    if (P.hybrid) {
+      const grad = `linear-gradient(90deg, ${P.doms.map((d) => DOMAINS[d].color).join(', ')})`;
+      const missing = DKEYS.find((d) => !P.doms.includes(d));
+      personaHtml = `<section class="window persona hybrid" style="--c:${PC};--grad:${grad}">
+        <div class="sys-head hy-head">STATUT HYBRIDE</div>
+        <div class="av-wrap">${personaAvatar(P)}</div>
+        <div class="p-title hy-title">${esc(P.t)}</div>
+        <div class="p-cls">Classe ${esc(P.cls)} · Rang <b class="rank-${P.rank}">${P.rank}</b></div>
+        <div class="hy-badges">${P.doms.map((d) => `<span style="--c:${DOMAINS[d].color}">${DOMAINS[d].icon} ${DOMAINS[d].stat} S</span>`).join('')}</div>
+        <p class="p-desc">${esc(P.desc)}</p>
+        <div class="p-traits">${P.traits.map((t) => `<span>${esc(t)}</span>`).join('')}</div>
+        ${missing ? `<p class="center muted tiny">Atteins le niveau ${S_LEVEL} en ${DOMAINS[missing].label} pour devenir « ${esc(HYBRIDS['sport+finance+relation'].t)} »</p>` : '<p class="center tiny glow">Statut ultime atteint : les trois strates au sommet.</p>'}
+      </section>`;
+    } else {
+      const ladder = CLASSES[P.dom].tiers.map((x, i) => `<span class="lad ${i === P.r ? 'on' : i < P.r ? 'past' : ''}" title="${esc(x.t)}">${RANKS[i]}</span>`).join('');
+      const sCount = DKEYS.filter((d) => state.domains[d].level >= S_LEVEL).length;
+      personaHtml = `<section class="window persona" style="--c:${PC}">
         <div class="sys-head" style="color:${PC}">STATUT DE PERSONNALITÉ</div>
-        <div class="av-wrap">${avatar(P.dom, P.r, PC, 's')}</div>
+        <div class="av-wrap">${personaAvatar(P)}</div>
         <div class="p-title">${esc(P.t)}</div>
         <div class="p-cls">Classe ${esc(P.cls)} · Rang <b class="rank-${P.rank}">${P.rank}</b> · Stat dominante : ${DOMAINS[P.dom].stat}</div>
         <p class="p-desc">${esc(P.desc)}</p>
         <div class="p-traits">${P.traits.map((t) => `<span>${esc(t)}</span>`).join('')}</div>
         <div class="ladder">${ladder}</div>
-        ${P.r < 5 ? `<p class="center muted tiny">Prochain statut au rang ${RANKS[P.r + 1]} : « ${esc(CLASSES[P.dom].tiers[P.r + 1].t)} »</p>` : '<p class="center tiny glow">Statut ultime atteint.</p>'}
-      </section>
+        ${P.r < 5 ? `<p class="center muted tiny">Prochain statut au rang ${RANKS[P.r + 1]} : « ${esc(CLASSES[P.dom].tiers[P.r + 1].t)} »</p>` : ''}
+        <p class="center muted tiny">✦ Statut hybride : atteins le niveau ${S_LEVEL} dans 2 stats (${sCount}/2)</p>
+      </section>`;
+    }
+    return `
+      ${pen}${pause}
+      ${personaHtml}
       <section class="window">
         <div class="sys-head">STATUT</div>
         <div class="status-top">
@@ -722,10 +750,10 @@
     }
     if (o.type === 'persona') {
       const P = persona(), PC = DOMAINS[P.dom].color;
-      modal(`<div class="lvlup" style="--c:${PC}"><div class="sys-head" style="color:${PC}">NOUVEAU STATUT</div>
-        <div class="av-wrap sm">${avatar(P.dom, P.r, PC, 'm')}</div>
+      modal(`<div class="lvlup" style="--c:${PC}"><div class="sys-head" style="color:${P.hybrid ? '#ffd34d' : PC}">${P.hybrid ? 'STATUT HYBRIDE DÉBLOQUÉ' : 'NOUVEAU STATUT'}</div>
+        <div class="av-wrap sm">${personaAvatar(P)}</div>
         <div class="p-title">${esc(P.t)}</div>
-        <div class="p-cls">Classe ${esc(P.cls)} · Rang ${P.rank}</div>
+        <div class="p-cls">Classe ${esc(P.cls)} · ${P.hybrid ? P.doms.map((d) => DOMAINS[d].stat + ' S').join(' + ') : 'Rang ' + P.rank}</div>
         <p class="p-desc">${esc(P.desc)}</p></div>`, [{ label: 'Confirmer', primary: true }], 'levelup');
       return;
     }
