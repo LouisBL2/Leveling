@@ -11,6 +11,7 @@
   const REGEN_COOLDOWN = 7; // jours entre deux régénérations complètes
   const QUESTIONS = window.QUESTIONS;
   const KEY = 'leveling.system.v1';
+  const APP_VERSION = '7';
   const DKEYS = ['sport', 'finance', 'relation'];
   const RANKS = ['E', 'D', 'C', 'B', 'A', 'S'];
   const PENALTY_RATE = 0.6;      // % de l'XP de la quête perdu si non faite
@@ -627,6 +628,10 @@
       <section class="window"><div class="sys-head">INSTALLER SUR TÉLÉPHONE</div>
         <p class="muted"><b>iPhone (Safari)</b> : bouton Partager → « Sur l'écran d'accueil ».<br><b>Android (Chrome)</b> : menu ⋮ → « Installer l'application ».<br>L'application fonctionne ensuite hors connexion.</p>
       </section>
+      <section class="window"><div class="sys-head">MISE À JOUR</div>
+        <p class="muted">Version installée : <b class="glow">${APP_VERSION}</b>. Si l'affichage ne correspond pas à la dernière version, force la mise à jour. Tes données ne sont pas touchées.</p>
+        <button class="btn" data-act="force-update">Forcer la mise à jour</button>
+      </section>
       <section class="window danger"><div class="sys-head red">ZONE DANGEREUSE</div>
         <button class="btn red" data-act="reset">Effacer toutes les données</button>
       </section>
@@ -899,6 +904,15 @@
         log('info', state.settings.pause ? 'Mode repos activé' : 'Mode repos désactivé');
         save(); render(); break;
       case 'export': doExport(); break;
+      case 'force-update': {
+        toast('Mise à jour en cours…', 'good');
+        try {
+          if ('serviceWorker' in navigator) { const regs = await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map((r) => r.unregister())); }
+          if (window.caches) { const ks = await caches.keys(); await Promise.all(ks.map((k) => caches.delete(k))); }
+        } catch (err) { /* on recharge quand même */ }
+        location.replace(location.pathname + '?u=' + Date.now());
+        break;
+      }
       case 'import': case 'ob-import': doImport(); break;
       case 'retake': {
         const ok = await modal('<div class="sys-head">RÉÉVALUATION</div><p class="center">Recommencer le questionnaire ? Tes réponses précédentes sont pré-sélectionnées.</p>', [{ label: 'Commencer', primary: true }, { label: 'Annuler' }]);
@@ -958,6 +972,14 @@
   flushOverlays();
 
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
+    // Vérifie s'il existe une nouvelle version à chaque ouverture et recharge automatiquement.
+    const hadController = !!navigator.serviceWorker.controller;
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (hadController && !reloaded) { reloaded = true; location.reload(); }
+    });
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((reg) => {
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update().catch(() => {}); });
+    }).catch(() => {});
   }
 })();
