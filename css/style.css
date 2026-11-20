@@ -327,3 +327,17 @@ body.onboarding #app { padding-bottom: 24px; }
 .hy-badges span { font: 700 11px var(--mono); letter-spacing: .1em; padding: 3px 9px; color: var(--c); border: 1px solid var(--c); box-shadow: 0 0 8px color-mix(in srgb, var(--c) 50%, transparent); }
 .avatar.hybrid { filter: drop-shadow(0 0 6px rgba(255, 211, 77, .35)); }
 .boss-svg { display: block; width: 100%; height: auto; overflow: visible; }
+
+/* ---------- galerie des statuts ---------- */
+.gal-btn { margin: 10px auto 0; display: block; }
+.modal .window.gallery { max-width: 520px; }
+.gal-sec { font: 700 11px var(--mono); letter-spacing: .14em; margin: 16px 0 8px; text-align: center; }
+.gal-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.gal-grid.two { grid-template-columns: repeat(2, 1fr); }
+.gal-cell { text-align: center; padding: 6px 4px; border: 1px solid rgba(73, 198, 255, .15); background: rgba(3, 8, 20, .6); }
+.gal-cell.on { border-color: #ffd34d; box-shadow: 0 0 12px rgba(255, 211, 77, .45); }
+.gal-cell.locked .gal-av { filter: saturate(.55) brightness(.75); }
+.gal-cell.locked .gal-t::after { content: " 🔒"; font-size: 10px; }
+.gal-av { width: 100%; max-width: 120px; margin: 0 auto; }
+.gal-t { font-size: 11.5px; font-weight: 700; line-height: 1.2; margin-top: 2px; }
+.gal-s { font-size: 10px; color: var(--muted); font-family: var(--mono); }

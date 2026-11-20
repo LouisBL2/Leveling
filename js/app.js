@@ -440,6 +440,7 @@
         <p class="p-desc">${esc(P.desc)}</p>
         <div class="p-traits">${P.traits.map((t) => `<span>${esc(t)}</span>`).join('')}</div>
         ${missing ? `<p class="center muted tiny">Atteins le niveau ${S_LEVEL} en ${DOMAINS[missing].label} pour devenir « ${esc(HYBRIDS['sport+finance+relation'].t)} »</p>` : '<p class="center tiny glow">Statut ultime atteint : les trois strates au sommet.</p>'}
+        <button class="btn ghost sm gal-btn" data-act="gallery">Galerie des statuts</button>
       </section>`;
     } else {
       const ladder = CLASSES[P.dom].tiers.map((x, i) => `<span class="lad ${i === P.r ? 'on' : i < P.r ? 'past' : ''}" title="${esc(x.t)}">${RANKS[i]}</span>`).join('');
@@ -454,6 +455,7 @@
         <div class="ladder">${ladder}</div>
         ${P.r < 5 ? `<p class="center muted tiny">Prochain statut au rang ${RANKS[P.r + 1]} : « ${esc(CLASSES[P.dom].tiers[P.r + 1].t)} »</p>` : ''}
         <p class="center muted tiny">✦ Statut hybride : atteins le niveau ${S_LEVEL} dans 2 stats (${sCount}/2)</p>
+        <button class="btn ghost sm gal-btn" data-act="gallery">Galerie des statuts</button>
       </section>`;
     }
     return `
@@ -779,6 +781,28 @@
     [{ label: 'Accepter', primary: true, red: true }], 'danger');
   }
 
+  /* ---------------- galerie des statuts ---------------- */
+  function showGallery() {
+    const cur = persona();
+    const cell = (svg, title, sub, on, got) => `<div class="gal-cell ${on ? 'on' : ''} ${got ? '' : 'locked'}"><div class="gal-av">${svg}</div><div class="gal-t">${esc(title)}</div><div class="gal-s">${sub}</div></div>`;
+    let html = '<div class="sys-head">GALERIE DES STATUTS</div><p class="center muted tiny">Ton statut actuel est encadré. Les statuts grisés ne sont pas encore atteints.</p>';
+    DKEYS.forEach((d) => {
+      const M = DOMAINS[d];
+      html += `<div class="gal-sec" style="color:${M.color}">${M.icon} ${CLASSES[d].cls.toUpperCase()} · stat dominante ${M.stat}</div><div class="gal-grid">`;
+      CLASSES[d].tiers.forEach((x, i) => {
+        html += cell(avatar(d, i, M.color), x.t, 'Rang ' + RANKS[i], !cur.hybrid && cur.dom === d && cur.r === i, !cur.hybrid && cur.dom === d && cur.r >= i);
+      });
+      html += '</div>';
+    });
+    html += '<div class="gal-sec" style="color:#ffd34d">✦ STATUTS HYBRIDES · 2 ou 3 stats au niveau ' + S_LEVEL + '</div><div class="gal-grid two">';
+    Object.keys(HYBRIDS).forEach((k) => {
+      const ds = k.split('+');
+      html += cell(avatar(ds, 5, ds.map((d) => DOMAINS[d].color)), HYBRIDS[k].t, ds.map((d) => DOMAINS[d].stat + ' S').join(' + '), cur.hybrid && cur.key === k, cur.hybrid && ds.every((d) => cur.doms.includes(d)));
+    });
+    html += '</div>';
+    modal(html, [{ label: 'Fermer', primary: true }], 'gallery');
+  }
+
   /* ---------------- import / export ---------------- */
   function doExport() {
     const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
@@ -818,6 +842,7 @@
     switch (act) {
       case 'tab': ui.tab = el.dataset.v; render(); window.scrollTo(0, 0); break;
       case 'filter': ui.filter = el.dataset.v; render(); break;
+      case 'gallery': showGallery(); break;
       case 'boss': {
         const d = el.dataset.d, L = +el.dataset.l, b = bossAt(d, L), M = DOMAINS[d];
         const ok = await modal(`<div class="sys-head red">COMBAT</div>
