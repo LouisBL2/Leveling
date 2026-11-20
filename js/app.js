@@ -6,7 +6,8 @@
 (function () {
   'use strict';
   const { DIFF, PERIOD, DOMAINS, CATALOG, PENALTIES } = window.GAME;
-  const { CLASSES, avatar } = window.PERSONA;
+  const { CLASSES, avatar, bossSprite } = window.PERSONA;
+  const BOSSES = window.BOSSES;
   const REGEN_COOLDOWN = 7; // jours entre deux régénérations complètes
   const QUESTIONS = window.QUESTIONS;
   const KEY = 'leveling.system.v1';
@@ -64,7 +65,8 @@
     streak: 0, lastFullDay: '', bonus: null, totalXp: 0,
     settings: { pause: false },
     changes: { day: '', add: 0, rem: 0, removedDone: [] },
-    setupDay: '', lastRegen: '', persona: ''
+    setupDay: '', lastRegen: '', persona: '',
+    bosses: { sport: [], finance: [], relation: [] }
   });
   let state;
   function load() {
@@ -79,6 +81,8 @@
     state.changes = Object.assign(def.changes, state.changes || {});
     if (state.calibrated && !state.setupDay) state.setupDay = dk(new Date()); // 1 journée de réglage libre après la mise à jour
     if (state.calibrated && !state.persona) state.persona = personaKey();
+    state.bosses = Object.assign(def.bosses, state.bosses || {});
+    if (!state.bossesInit) { markPassedBosses(); state.bossesInit = true; } // paliers déjà dépassés = vaincus
   }
   function save() {
     try { localStorage.setItem(KEY, JSON.stringify(state)); }
@@ -90,18 +94,47 @@
 
   /* ---------------- XP & niveaux ---------------- */
   const overlayQueue = [];
+  /* ---------------- boss ---------------- */
+  const isGate = (L) => L > 0 && L % 5 === 0;
+  const defeated = (d, L) => state.bosses[d].includes(L);
+  const sealed = (d, L) => isGate(L) && L < 100 && !defeated(d, L);
+  const bossAt = (d, L) => BOSSES[d].find((b) => b.lvl === L);
+  const bossReward = (b) => Math.round(need(b.lvl) * (b.big ? 1 : 0.5));
+  const nextBoss = (d) => BOSSES[d].find((b) => !defeated(d, b.lvl)) || null;
+  function markPassedBosses() {
+    DKEYS.forEach((d) => BOSSES[d].forEach((b) => {
+      if (b.lvl < state.domains[d].level && !defeated(d, b.lvl)) state.bosses[d].push(b.lvl);
+    }));
+  }
+  function defeatBoss(d, L) {
+    const b = bossAt(d, L);
+    if (!b || defeated(d, L) || state.domains[d].level < L) return;
+    state.bosses[d].push(L);
+    const xp = bossReward(b);
+    log('lvl', `${b.big ? 'BOSS' : 'Mini-boss'} vaincu : ${b.name} (${DOMAINS[d].label} niv. ${L}) · +${xp} XP`);
+    overlayQueue.push({ type: 'bossWin', d, L, xp });
+    addXP(d, xp);
+    checkPersona();
+    save(); render(); flushOverlays();
+  }
+
   function addXP(d, amt) {
     const D = state.domains[d];
     const before = D.level, beforeTier = tier(before), beforeRank = globalRank();
     D.xp += amt;
     if (amt > 0) state.totalXp += amt;
-    while (D.level < 100 && D.xp >= need(D.level)) { D.xp -= need(D.level); D.level++; }
+    while (D.level < 100 && D.xp >= need(D.level) && !sealed(d, D.level)) { D.xp -= need(D.level); D.level++; }
     if (D.level >= 100) { D.level = 100; D.xp = Math.min(D.xp, need(100)); }
     while (D.xp < 0 && D.level > 0) { D.level--; D.xp += need(D.level); }
     if (D.level === 0 && D.xp < 0) D.xp = 0;
     if (D.level > before) {
       log('lvl', `${DOMAINS[d].label} : niveau ${before} → ${D.level}`);
       overlayQueue.push({ type: 'up', d, from: before, to: D.level, title: tier(D.level) > beforeTier ? DOMAINS[d].titles[tier(D.level)] : null, rank: globalRank() !== beforeRank ? globalRank() : null });
+      if (isGate(D.level) && !defeated(d, D.level)) {
+        const b = bossAt(d, D.level);
+        log('pen', `${b.big ? 'BOSS' : 'Mini-boss'} apparu : ${b.name} (${DOMAINS[d].label} niv. ${D.level})`);
+        overlayQueue.push({ type: 'bossAppear', d, L: D.level });
+      }
     } else if (D.level < before) {
       log('fail', `${DOMAINS[d].label} : niveau perdu ${before} → ${D.level}`);
       overlayQueue.push({ type: 'down', d, from: before, to: D.level });
@@ -332,6 +365,7 @@
     const first = !state.calibrated;
     DKEYS.forEach((d) => { state.domains[d] = { level: stats[d], xp: 0, base: stats[d] }; });
     state.calibrated = true;
+    markPassedBosses();
     if (first) { state.setupDay = dk(new Date()); state.lastRegen = dk(new Date()); }
     if (first || !state.quests.length) applyRecommendation();
     if (first) state.persona = personaKey(); else checkPersona();
@@ -424,10 +458,27 @@
             <div class="stat-lvl"><small>NIV.</small>${D.level}<small>/100</small></div>
           </div>
           ${bar(D.level >= 100 ? 1 : D.xp, D.level >= 100 ? 1 : need(D.level), M.color)}
-          <div class="stat-foot"><span>${D.level >= 100 ? 'NIVEAU MAX' : `XP ${D.xp} / ${need(D.level)}`}</span><span class="${delta >= 0 ? 'up' : 'down'}">${delta >= 0 ? '▲ +' : '▼ '}${delta} depuis l'évaluation</span></div>
+          <div class="stat-foot"><span>${D.level >= 100 ? 'NIVEAU MAX' : `XP ${D.xp} / ${need(D.level)}`}${sealed(d, D.level) && D.xp >= need(D.level) ? ' · <b class="red-t">🔒 BOSS REQUIS</b>' : ''}</span><span class="${delta >= 0 ? 'up' : 'down'}">${delta >= 0 ? '▲ +' : '▼ '}${delta} depuis l'évaluation</span></div>
+          ${bossRow(d)}
         </section>`;
       }).join('')}
     `;
+  }
+
+  function bossRow(d) {
+    const b = nextBoss(d), D = state.domains[d];
+    if (!b) return '<div class="boss-row cleared">♛ Tous les gardiens de cette stat sont vaincus</div>';
+    const ready = D.level >= b.lvl, left = b.lvl - D.level;
+    return `<div class="boss-row ${ready ? 'ready' : ''} ${b.big ? 'big' : ''}">
+      <div class="boss-spr">${bossSprite(b.name, DOMAINS[d].color, b.big)}</div>
+      <div class="boss-info">
+        <div class="boss-type">${b.big ? 'BOSS' : 'MINI-BOSS'} · NIV. ${b.lvl}</div>
+        <div class="boss-name">${esc(b.name)}</div>
+        <div class="boss-task">${esc(b.task)}</div>
+        <div class="boss-meta">${ready ? `<b class="red-t">⚠ Bloque ta progression</b>` : `Apparaît dans ${left} niveau${left > 1 ? 'x' : ''}`} · Récompense +${bossReward(b)} XP</div>
+      </div>
+      ${ready ? `<button class="btn sm red" data-act="boss" data-d="${d}" data-l="${b.lvl}">Affronter</button>` : ''}
+    </div>`;
   }
 
   function questCard(q) {
@@ -650,6 +701,25 @@
   function flushOverlays() {
     if (document.querySelector('.modal') || !overlayQueue.length) return;
     const o = overlayQueue.shift(), M = DOMAINS[o.d];
+    if (o.type === 'bossAppear' || o.type === 'bossWin') {
+      const b = bossAt(o.d, o.L);
+      if (o.type === 'bossAppear') {
+        modal(`<div class="sys-head red">${b.big ? 'BOSS' : 'MINI-BOSS'} APPARU</div>
+          <div class="boss-big shake">${bossSprite(b.name, M.color, b.big)}</div>
+          <div class="pen-title">${esc(b.name)}</div>
+          <p class="center muted">Gardien du niveau ${o.L} · ${M.label}</p>
+          <p class="center">Épreuve : <b>${esc(b.task)}</b></p>
+          <p class="center muted tiny">Ta stat ${M.stat} est bloquée au niveau ${o.L} tant que ce gardien n'est pas vaincu. Ton XP continue de s'accumuler.</p>`,
+        [{ label: 'Relever le défi', primary: true, red: true }], 'danger');
+      } else {
+        modal(`<div class="lvlup" style="--c:${M.color}"><div class="lvlup-t">VICTOIRE</div>
+          <div class="boss-big dead">${bossSprite(b.name, M.color, b.big)}</div>
+          <div class="lvlup-d">${b.big ? 'BOSS' : 'MINI-BOSS'} VAINCU</div>
+          <div class="p-title">${esc(b.name)}</div>
+          <div class="lvlup-x">+${o.xp} XP · ${M.stat} débloquée</div></div>`, [{ label: 'Confirmer', primary: true }], 'levelup');
+      }
+      return;
+    }
     if (o.type === 'persona') {
       const P = persona(), PC = DOMAINS[P.dom].color;
       modal(`<div class="lvlup" style="--c:${PC}"><div class="sys-head" style="color:${PC}">NOUVEAU STATUT</div>
@@ -720,6 +790,17 @@
     switch (act) {
       case 'tab': ui.tab = el.dataset.v; render(); window.scrollTo(0, 0); break;
       case 'filter': ui.filter = el.dataset.v; render(); break;
+      case 'boss': {
+        const d = el.dataset.d, L = +el.dataset.l, b = bossAt(d, L), M = DOMAINS[d];
+        const ok = await modal(`<div class="sys-head red">COMBAT</div>
+          <div class="boss-big">${bossSprite(b.name, M.color, b.big)}</div>
+          <div class="pen-title">${esc(b.name)}</div>
+          <p class="center">Épreuve : <b>${esc(b.task)}</b></p>
+          <p class="center muted tiny">As-tu réellement accompli cette épreuve ? Le Système te fait confiance : ne triche qu'avec toi-même.</p>`,
+        [{ label: 'Épreuve accomplie', primary: true, red: true }, { label: 'Pas encore' }], 'danger');
+        if (ok === 0) defeatBoss(d, L);
+        break;
+      }
       case 'toggle': toggleQuest(el.dataset.id); break;
       case 'penalty': {
         const ok = await modal('<div class="sys-head red">CONFIRMATION</div><p class="center">As-tu réellement accompli la quête de pénalité ?</p><p class="center muted tiny">Le Système te fait confiance. Ne triche qu\'avec toi-même.</p>', [{ label: 'Oui, accomplie', primary: true, red: true }, { label: 'Pas encore' }], 'danger');
