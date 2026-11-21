@@ -11,7 +11,7 @@
   const REGEN_COOLDOWN = 7; // jours entre deux régénérations complètes
   const QUESTIONS = window.QUESTIONS;
   const KEY = 'leveling.system.v1';
-  const APP_VERSION = '9';
+  const APP_VERSION = '10';
   const DKEYS = ['sport', 'finance', 'relation'];
   const RANKS = ['E', 'D', 'C', 'B', 'A', 'S'];
   const PENALTY_RATE = 0.6;      // % de l'XP de la quête perdu si non faite
@@ -64,7 +64,7 @@
     domains: { sport: { level: 0, xp: 0, base: 0 }, finance: { level: 0, xp: 0, base: 0 }, relation: { level: 0, xp: 0, base: 0 } },
     quests: [], penalties: [], log: [],
     streak: 0, lastFullDay: '', bonus: null, totalXp: 0,
-    settings: { pause: false },
+    settings: { pause: false, sound: true, volume: 0.7 },
     changes: { day: '', add: 0, rem: 0, removedDone: [] },
     setupDay: '', lastRegen: '', persona: '',
     bosses: { sport: [], finance: [], relation: [] }
@@ -249,7 +249,8 @@
       dayDone = skippedDays ? 0 : closedDaily.filter((q) => q.done).length;
       dayRatio = dayDone / closedDaily.length;
     }
-    const belowThird = closedDaily.length > 0 && dayRatio < 1 / 3 && !state.settings.pause;
+    const PEN_THRESHOLD = 2 / 3; // part minimale des quêtes du jour à valider
+    const belowThird = closedDaily.length > 0 && dayRatio < PEN_THRESHOLD && !state.settings.pause;
     state.quests.forEach((q) => {
       const cur = cycleKey(q.p, now);
       if (q.cycle === cur) return;
@@ -286,14 +287,14 @@
       DKEYS.forEach((d) => { if (loss[d]) addXP(d, -loss[d]); });
       missed.forEach((x) => log('fail', `Quête manquée : « ${x.t} »${x.m > 1 ? ' ×' + x.m : ''} (−${x.amt} XP ${DOMAINS[x.d].label})`));
     }
-    // Quête de pénalité : seulement si moins d'1/3 des quêtes du jour ont été validées.
+    // Quête de pénalité : si moins de 2/3 des quêtes du jour ont été validées.
     if (belowThird) {
       const pick = PENALTIES[Math.floor(Math.random() * PENALTIES.length)];
       const stake = total > 0 ? loss : { sport: 30, finance: 30, relation: 30 };
       pen = { id: uid(), t: pick.t, desc: pick.desc, created: now.getTime(), deadline: now.getTime() + PENALTY_DELAY, loss: stake,
-        reason: `${dayDone}/${closedDaily.length} quêtes du jour validées (minimum : ${Math.ceil(closedDaily.length / 3)})` };
+        reason: `${dayDone}/${closedDaily.length} quêtes du jour validées (minimum : ${Math.ceil(closedDaily.length * 2 / 3)})` };
       state.penalties.push(pen);
-      log('pen', `Moins d'1/3 des quêtes validées (${dayDone}/${closedDaily.length}) → Zone de pénalité : « ${pen.t} »`);
+      log('pen', `Moins de 2/3 des quêtes validées (${dayDone}/${closedDaily.length}) → Zone de pénalité : « ${pen.t} »`);
     }
     checkPersona();
     save();
@@ -308,6 +309,7 @@
       addXP(q.d, q.xp);
       log('ok', `Quête accomplie : « ${q.t} » (+${q.xp} XP ${DOMAINS[q.d].label})`);
       toast(`+${q.xp} XP · ${DOMAINS[q.d].stat}`, 'good');
+      window.SFX.play('quest');
       checkDailyBonus();
     } else {
       q.done = false;
@@ -335,7 +337,7 @@
       <div class="sys-head">QUÊTE JOURNALIÈRE TERMINÉE</div>
       <p class="center big">Toutes les quêtes quotidiennes sont accomplies.</p>
       <p class="center">Récompense : <b class="glow">+${amt} XP</b> dans chaque domaine</p>
-      <p class="center muted">Série en cours : <b>${state.streak}</b> jour(s)</p>`, [{ label: 'Confirmer', primary: true }]), 400);
+      <p class="center muted">Série en cours : <b>${state.streak}</b> jour(s)</p>`, [{ label: 'Confirmer', primary: true }], '', 'levelup'), 400);
   }
   function revokeDailyBonus() {
     const today = dk(new Date());
@@ -355,6 +357,7 @@
     const sum = DKEYS.reduce((s, d) => s + back[d], 0);
     log('ok', `Pénalité accomplie : « ${p.t} » (+${sum} XP récupérée)`);
     toast(`Pénalité accomplie · +${sum} XP récupérée`, 'good');
+    window.SFX.play('quest');
     checkPersona();
     save(); render(); flushOverlays();
   }
@@ -548,7 +551,7 @@
         ${list.length ? list.map(questCard).join('') : '<p class="muted center">Aucune quête. Ajoute-en depuis le catalogue.</p>'}
       </section>`;
     }).join('');
-    const dl = state.quests.filter((q) => q.p === 'daily'), dd = dl.filter((q) => q.done).length, need3 = Math.ceil(dl.length / 3);
+    const dl = state.quests.filter((q) => q.p === 'daily'), dd = dl.filter((q) => q.done).length, need3 = Math.ceil(dl.length * 2 / 3);
     const warn = dl.length ? `<p class="warn">${dd >= need3 ? '✔' : '⚠'} Quêtes du jour validées : <b>${dd}/${dl.length}</b> — minimum ${need3} pour éviter la Zone de pénalité. Chaque quête manquée coûte de l'XP.</p>` : '';
     return `${pens}<div class="chips">${chips}</div>${warn}${sections}`;
   }
@@ -611,6 +614,11 @@
     return `
       <section class="window"><div class="sys-head">PROFIL</div>
         <form id="nameForm" class="form"><input name="n" maxlength="30" value="${esc(state.name)}" placeholder="Pseudo"><button class="btn" type="submit">Renommer</button></form>
+      </section>
+      <section class="window"><div class="sys-head">EFFETS SONORES</div>
+        <p class="muted">Sons du Système : ouverture des fenêtres, quêtes, niveaux, rangs et boss. Sur iPhone, le bouton silencieux coupe aussi ces sons.</p>
+        <div class="row2"><button class="btn ${state.settings.sound ? '' : 'ghost'}" data-act="sound">${state.settings.sound ? '🔊 Son activé' : '🔇 Son coupé'}</button><button class="btn ghost" data-act="sound-test">Tester</button></div>
+        <label class="vol">Volume <input type="range" id="vol" min="0" max="1" step="0.05" value="${state.settings.volume ?? 0.7}"></label>
       </section>
       <section class="window"><div class="sys-head">MODE REPOS</div>
         <p class="muted">Vacances, maladie, blessure : active le mode repos pour suspendre toutes les pénalités. Les quêtes continuent de se réinitialiser.</p>
@@ -717,7 +725,8 @@
   }
 
   /* ---------------- modales, toasts, overlays ---------------- */
-  function modal(html, buttons = [{ label: 'OK', primary: true }], cls = '') {
+  function modal(html, buttons = [{ label: 'OK', primary: true }], cls = '', sound = 'open') {
+    if (sound) window.SFX.play(sound);
     return new Promise((res) => {
       const m = document.createElement('div');
       m.className = 'modal';
@@ -745,13 +754,13 @@
           <p class="center muted">Gardien du niveau ${o.L} · ${M.label}</p>
           <p class="center">Épreuve : <b>${esc(b.task)}</b></p>
           <p class="center muted tiny">Ta stat ${M.stat} est bloquée au niveau ${o.L} tant que ce gardien n'est pas vaincu. Ton XP continue de s'accumuler.</p>`,
-        [{ label: 'Relever le défi', primary: true, red: true }], 'danger');
+        [{ label: 'Relever le défi', primary: true, red: true }], 'danger', 'boss');
       } else {
         modal(`<div class="lvlup" style="--c:${M.color}"><div class="lvlup-t">VICTOIRE</div>
           <div class="boss-big dead">${bossSprite(b.name, M.color, b.big)}</div>
           <div class="lvlup-d">${b.big ? 'BOSS' : 'MINI-BOSS'} VAINCU</div>
           <div class="p-title">${esc(b.name)}</div>
-          <div class="lvlup-x">+${o.xp} XP · ${M.stat} débloquée</div></div>`, [{ label: 'Confirmer', primary: true }], 'levelup');
+          <div class="lvlup-x">+${o.xp} XP · ${M.stat} débloquée</div></div>`, [{ label: 'Confirmer', primary: true }], 'levelup', 'victory');
       }
       return;
     }
@@ -761,7 +770,7 @@
         <div class="av-wrap sm">${personaAvatar(P)}</div>
         <div class="p-title">${esc(P.t)}</div>
         <div class="p-cls">Classe ${esc(P.cls)} · ${P.hybrid ? P.doms.map((d) => DOMAINS[d].stat + ' S').join(' + ') : 'Rang ' + P.rank}</div>
-        <p class="p-desc">${esc(P.desc)}</p></div>`, [{ label: 'Confirmer', primary: true }], 'levelup');
+        <p class="p-desc">${esc(P.desc)}</p></div>`, [{ label: 'Confirmer', primary: true }], 'levelup', 'rankup');
       return;
     }
     if (o.type === 'up') {
@@ -769,9 +778,9 @@
         <div class="lvlup-d">${M.icon} ${M.label.toUpperCase()}</div>
         <div class="lvlup-n">${o.from} <span>→</span> <b>${o.to}</b></div>
         ${o.title ? `<div class="lvlup-x">Nouveau titre obtenu : « ${esc(o.title)} »</div>` : ''}
-        ${o.rank ? `<div class="lvlup-x">Rang global : <b>${o.rank}</b></div>` : ''}</div>`, [{ label: 'Confirmer', primary: true }], 'levelup');
+        ${o.rank ? `<div class="lvlup-x">Rang global : <b>${o.rank}</b></div>` : ''}</div>`, [{ label: 'Confirmer', primary: true }], 'levelup', o.rank ? 'rankup' : 'levelup');
     } else {
-      modal(`<div class="sys-head red">NIVEAU PERDU</div><p class="center big">${M.label} : ${o.from} → <b class="red-t">${o.to}</b></p><p class="center muted">Le Système ne tolère pas la faiblesse.</p>`, [{ label: 'Compris', primary: true, red: true }], 'danger');
+      modal(`<div class="sys-head red">NIVEAU PERDU</div><p class="center big">${M.label} : ${o.from} → <b class="red-t">${o.to}</b></p><p class="center muted">Le Système ne tolère pas la faiblesse.</p>`, [{ label: 'Compris', primary: true, red: true }], 'danger', 'down');
     }
   }
   function showPenaltyAlert(missed, pen, failed) {
@@ -780,10 +789,10 @@
     modal(`<div class="sys-head red">AVERTISSEMENT</div>
       ${missed.length ? '<p class="center">Des quêtes n\'ont pas été accomplies dans le temps imparti.</p>' : ''}
       <ul class="pen-list">${list}${fl}</ul>
-      ${missed.length && !pen ? '<p class="center muted tiny">Tu as validé au moins 1/3 des quêtes du jour : pas de quête de pénalité, seulement la perte d\'XP.</p>' : ''}
+      ${missed.length && !pen ? '<p class="center muted tiny">Tu as validé au moins 2/3 des quêtes du jour : pas de quête de pénalité, seulement la perte d\'XP.</p>' : ''}
       ${pen ? `<p class="center">${esc(pen.reason)}.<br>Tu es transféré dans la <b class="red-t">ZONE DE PÉNALITÉ</b>.</p>
       <div class="pen-title">${esc(pen.t)}</div><p class="center muted">Délai : 24 h. Réussite : 50 % de l'XP perdue récupérée. Échec : la perte est appliquée une seconde fois.</p>` : ''}`,
-    [{ label: 'Accepter', primary: true, red: true }], 'danger');
+    [{ label: 'Accepter', primary: true, red: true }], 'danger', 'warn');
   }
 
   /* ---------------- galerie des statuts ---------------- */
@@ -830,7 +839,7 @@
           const ok = await modal('<div class="sys-head">IMPORTER</div><p class="center">Remplacer les données actuelles par cette sauvegarde ?</p>', [{ label: 'Remplacer', primary: true }, { label: 'Annuler' }]);
           if (ok !== 0) return;
           state = Object.assign(fresh(), data);
-          save(); evaluate(); render(); toast('Sauvegarde restaurée', 'good');
+          save(); applySound(); evaluate(); render(); toast('Sauvegarde restaurée', 'good');
         } catch (e) { toast('Fichier de sauvegarde invalide', 'bad'); }
       };
       r.readAsText(f);
@@ -845,7 +854,7 @@
     if (!el) return;
     const act = el.dataset.act, o = state.onboarding;
     switch (act) {
-      case 'tab': ui.tab = el.dataset.v; render(); window.scrollTo(0, 0); break;
+      case 'tab': if (ui.tab !== el.dataset.v) window.SFX.play('tab'); ui.tab = el.dataset.v; render(); window.scrollTo(0, 0); break;
       case 'filter': ui.filter = el.dataset.v; render(); break;
       case 'gallery': showGallery(); break;
       case 'boss': {
@@ -855,7 +864,7 @@
           <div class="pen-title">${esc(b.name)}</div>
           <p class="center">Épreuve : <b>${esc(b.task)}</b></p>
           <p class="center muted tiny">As-tu réellement accompli cette épreuve ? Le Système te fait confiance : ne triche qu'avec toi-même.</p>`,
-        [{ label: 'Épreuve accomplie', primary: true, red: true }, { label: 'Pas encore' }], 'danger');
+        [{ label: 'Épreuve accomplie', primary: true, red: true }, { label: 'Pas encore' }], 'danger', 'boss');
         if (ok === 0) defeatBoss(d, L);
         break;
       }
@@ -899,6 +908,16 @@
         }
         break;
       }
+      case 'sound':
+        state.settings.sound = !state.settings.sound; applySound();
+        if (state.settings.sound) window.SFX.play('quest');
+        save(); render(); break;
+      case 'sound-test': {
+        const seq = ['open', 'quest', 'levelup', 'rankup', 'boss'];
+        seq.forEach((n, i) => setTimeout(() => window.SFX.play(n), i * 2200));
+        toast('Ouverture · Quête · Niveau · Rang · Boss', 'good');
+        break;
+      }
       case 'pause':
         state.settings.pause = !state.settings.pause;
         log('info', state.settings.pause ? 'Mode repos activé' : 'Mode repos désactivé');
@@ -924,15 +943,16 @@
         if (ok === 0) { localStorage.removeItem(KEY); state = fresh(); ui.tab = 'status'; render(); }
         break;
       }
-      case 'ob-accept': o.step = 'name'; save(); render(); break;
+      case 'ob-accept': window.SFX.play('open'); o.step = 'name'; save(); render(); break;
       case 'answer': {
         const q = QUESTIONS[o.idx];
         o.answers[q.id] = +el.dataset.i;
+        window.SFX.play('tab');
         el.classList.add('sel');
         save();
         setTimeout(() => {
           if (o.idx < QUESTIONS.length - 1) { o.idx++; save(); render(); }
-          else { finishQuiz(); render(); }
+          else { finishQuiz(); render(); window.SFX.play('rankup'); }
         }, 180);
         break;
       }
@@ -964,8 +984,17 @@
   setInterval(() => { const now = new Date(); if (dk(now) !== dk(new Date(lastEval))) tick(); }, 60000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(); });
 
+  function applySound() {
+    window.SFX.enabled = state.settings.sound !== false;
+    window.SFX.volume = typeof state.settings.volume === 'number' ? state.settings.volume : 0.7;
+  }
+  document.addEventListener('change', (e) => {
+    if (e.target.id === 'vol') { state.settings.volume = +e.target.value; applySound(); window.SFX.play('quest'); save(); }
+  });
+
   /* ---------------- démarrage ---------------- */
   load();
+  applySound();
   if (state.calibrated && state.onboarding.step === 'result') state.onboarding.step = 'done';
   render();
   evaluate();

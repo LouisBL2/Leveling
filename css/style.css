@@ -342,3 +342,7 @@ body.onboarding #app { padding-bottom: 24px; }
 .gal-av { width: 100%; max-width: 120px; margin: 0 auto; }
 .gal-t { font-size: 11.5px; font-weight: 700; line-height: 1.2; margin-top: 2px; }
 .gal-s { font-size: 10px; color: var(--muted); font-family: var(--mono); }
+
+/* ---------- réglage du volume ---------- */
+.vol { display: flex; align-items: center; gap: 12px; margin-top: 12px; font-size: 13px; color: var(--muted); }
+.vol input[type=range] { flex: 1; padding: 0; border: 0; background: none; accent-color: var(--glow); box-shadow: none; }
