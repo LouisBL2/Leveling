@@ -1,26 +1,51 @@
 /* =========================================================
    EFFETS SONORES — synthétisés en direct (Web Audio API)
    Aucun fichier audio : tout est généré, fonctionne hors ligne.
+   Palette douce « interface holographique » : cloches FM,
+   nappes, souffles filtrés, réverbération synthétique.
    ========================================================= */
 (function () {
-  let ctx = null, master = null, noiseBuf = null;
+  let ctx = null, bus = null, verb = null, noiseBuf = null, out = null;
   const SFX = { enabled: true, volume: 0.7 };
 
+  /* ---------- chaîne audio : voix → (sec + réverb) → compresseur doux → sortie ---------- */
+  function makeImpulse(seconds, decay) {
+    const len = Math.floor(ctx.sampleRate * seconds), ir = ctx.createBuffer(2, len, ctx.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = ir.getChannelData(ch);
+      let lp = 0;
+      for (let i = 0; i < len; i++) {
+        lp += 0.35 * ((Math.random() * 2 - 1) - lp);             // bruit adouci (moins de brillance)
+        d[i] = lp * Math.pow(1 - i / len, decay);
+      }
+    }
+    return ir;
+  }
   function init() {
     if (ctx) return ctx;
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return null;
     ctx = new AC();
-    master = ctx.createGain();
-    master.gain.value = SFX.volume * 0.5;
+    out = ctx.createGain();
     const comp = ctx.createDynamicsCompressor();
-    master.connect(comp); comp.connect(ctx.destination);
-    noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
-    const d = noiseBuf.getChannelData(0);
-    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    comp.threshold.value = -18; comp.knee.value = 20; comp.ratio.value = 3; comp.attack.value = 0.01; comp.release.value = 0.3;
+    const tone = ctx.createBiquadFilter(); tone.type = 'lowpass'; tone.frequency.value = 9000; // retire l'aigreur
+    out.connect(tone); tone.connect(comp); comp.connect(ctx.destination);
+
+    bus = ctx.createGain(); bus.connect(out);                     // signal sec
+    verb = ctx.createGain(); verb.gain.value = 1;                 // envoi réverb
+    const conv = ctx.createConvolver(); conv.buffer = makeImpulse(2.6, 3.2);
+    const wet = ctx.createGain(); wet.gain.value = 0.55;
+    verb.connect(conv); conv.connect(wet); wet.connect(out);
+
+    noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
+    const nd = noiseBuf.getChannelData(0);
+    for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+    applyVolume();
     return ctx;
   }
-  // iPhone : le son doit être débloqué par un premier contact de l'utilisateur.
+  function applyVolume() { if (out) out.gain.value = SFX.volume * 1.6; }
+
   function unlock() {
     const c = init(); if (!c) return;
     if (c.state === 'suspended') c.resume().catch(() => {});
@@ -29,84 +54,150 @@
   }
   ['pointerdown', 'touchend', 'keydown'].forEach((ev) => document.addEventListener(ev, unlock, { passive: true }));
 
-  // Une note : fréquence, départ, durée, forme d'onde, volume, glissando, filtre passe-bas.
-  function tone(f, t, dur, type = 'sine', vol = 0.3, f2 = null, lp = null) {
-    const o = ctx.createOscillator(), g = ctx.createGain();
-    const now = ctx.currentTime + t;
-    o.type = type; o.frequency.setValueAtTime(f, now);
-    if (f2) o.frequency.exponentialRampToValueAtTime(f2, now + dur);
-    g.gain.setValueAtTime(0.0001, now);
-    g.gain.exponentialRampToValueAtTime(vol, now + 0.012);
-    g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
-    let node = o;
-    if (lp) { const fl = ctx.createBiquadFilter(); fl.type = 'lowpass'; fl.frequency.value = lp; o.connect(fl); node = fl; }
-    node.connect(g); g.connect(master);
-    o.start(now); o.stop(now + dur + 0.05);
-  }
-  function noise(t, dur, vol = 0.2, lp = 800, hp = 0) {
-    const s = ctx.createBufferSource(), g = ctx.createGain(), fl = ctx.createBiquadFilter();
-    const now = ctx.currentTime + t;
-    s.buffer = noiseBuf; s.loop = true;
-    fl.type = hp ? 'highpass' : 'lowpass'; fl.frequency.value = hp || lp;
-    g.gain.setValueAtTime(0.0001, now);
-    g.gain.exponentialRampToValueAtTime(vol, now + 0.05);
-    g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
-    s.connect(fl); fl.connect(g); g.connect(master);
-    s.start(now); s.stop(now + dur + 0.05);
-  }
-  const N = (n) => 440 * Math.pow(2, (n - 69) / 12); // numéro MIDI → Hz
+  /* ---------- briques sonores ---------- */
+  const N = (n) => 440 * Math.pow(2, (n - 69) / 12);   // numéro MIDI → Hz
+  const T = () => ctx.currentTime + 0.02;
 
+  // sortie d'une voix : panoramique + envoi sec / réverb
+  function route(node, pan = 0, wet = 0.35) {
+    let n = node;
+    if (ctx.createStereoPanner) { const p = ctx.createStereoPanner(); p.pan.value = pan; n.connect(p); n = p; }
+    const dry = ctx.createGain(); dry.gain.value = 1 - wet * 0.5;
+    const send = ctx.createGain(); send.gain.value = wet;
+    n.connect(dry); dry.connect(bus); n.connect(send); send.connect(verb);
+  }
+  function env(g, t, a, peak, dur) {
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(peak, t + a);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  }
+
+  // Cloche cristalline (synthèse FM : porteuse + modulateur qui s'éteint)
+  function bell(f, t, { vol = 0.12, dur = 1.2, ratio = 3.5, index = 1.2, pan = 0, wet = 0.45, attack = 0.004 } = {}) {
+    const st = T() + t;
+    const car = ctx.createOscillator(), mod = ctx.createOscillator(), mg = ctx.createGain(), g = ctx.createGain();
+    car.type = 'sine'; mod.type = 'sine';
+    car.frequency.value = f; mod.frequency.value = f * ratio;
+    mg.gain.setValueAtTime(f * index, st); mg.gain.exponentialRampToValueAtTime(f * 0.01, st + dur * 0.6);
+    mod.connect(mg); mg.connect(car.frequency);
+    env(g, st, attack, vol, dur);
+    car.connect(g); route(g, pan, wet);
+    car.start(st); mod.start(st); car.stop(st + dur + 0.1); mod.stop(st + dur + 0.1);
+    // octave douce pour la rondeur
+    const o2 = ctx.createOscillator(), g2 = ctx.createGain();
+    o2.type = 'sine'; o2.frequency.value = f * 2;
+    env(g2, st, attack, vol * 0.18, dur * 0.5);
+    o2.connect(g2); route(g2, pan, wet); o2.start(st); o2.stop(st + dur);
+  }
+
+  // Nappe : plusieurs oscillateurs légèrement désaccordés, filtrés, attaque lente
+  function pad(freqs, t, { vol = 0.05, dur = 2, attack = 0.5, cutoff = 1800, wet = 0.6, type = 'triangle' } = {}) {
+    const st = T() + t;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = cutoff; lp.Q.value = 0.5;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, st);
+    g.gain.exponentialRampToValueAtTime(vol, st + attack);
+    g.gain.setValueAtTime(vol, st + Math.max(attack, dur - 0.9));
+    g.gain.exponentialRampToValueAtTime(0.0001, st + dur);
+    lp.connect(g); route(g, 0, wet);
+    freqs.forEach((f, i) => [-7, 7].forEach((cents) => {
+      const o = ctx.createOscillator(); o.type = type; o.frequency.value = f; o.detune.value = cents + i;
+      o.connect(lp); o.start(st); o.stop(st + dur + 0.1);
+    }));
+  }
+
+  // Souffle : bruit filtré dont la fréquence glisse (whoosh)
+  function swoosh(t, dur, from, to, { vol = 0.05, q = 1.2, pan = 0, wet = 0.4 } = {}) {
+    const st = T() + t;
+    const s = ctx.createBufferSource(), bp = ctx.createBiquadFilter(), g = ctx.createGain();
+    s.buffer = noiseBuf; bp.type = 'bandpass'; bp.Q.value = q;
+    bp.frequency.setValueAtTime(from, st); bp.frequency.exponentialRampToValueAtTime(to, st + dur);
+    g.gain.setValueAtTime(0.0001, st);
+    g.gain.exponentialRampToValueAtTime(vol, st + dur * 0.45);
+    g.gain.exponentialRampToValueAtTime(0.0001, st + dur);
+    s.connect(bp); bp.connect(g); route(g, pan, wet);
+    s.start(st); s.stop(st + dur + 0.05);
+  }
+
+  // Grave doux (sub) : sinus qui descend, pour les impacts et les battements
+  function sub(f1, f2, t, dur, vol = 0.25) {
+    const st = T() + t, o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = 'sine'; o.frequency.setValueAtTime(f1, st); o.frequency.exponentialRampToValueAtTime(f2, st + dur);
+    env(g, st, 0.01, vol, dur);
+    o.connect(g); route(g, 0, 0.15); o.start(st); o.stop(st + dur + 0.05);
+  }
+
+  // Bourdon grave qui enfle (boss)
+  function drone(f, t, dur, vol = 0.12) {
+    const st = T() + t, lp = ctx.createBiquadFilter(), g = ctx.createGain();
+    lp.type = 'lowpass'; lp.frequency.setValueAtTime(120, st); lp.frequency.exponentialRampToValueAtTime(700, st + dur * 0.7); lp.Q.value = 2;
+    g.gain.setValueAtTime(0.0001, st); g.gain.exponentialRampToValueAtTime(vol, st + dur * 0.6); g.gain.exponentialRampToValueAtTime(0.0001, st + dur);
+    lp.connect(g); route(g, 0, 0.5);
+    [0, 7, 12].forEach((semi, i) => {
+      const o = ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = f * Math.pow(2, semi / 12); o.detune.value = (i - 1) * 6;
+      o.connect(lp); o.start(st); o.stop(st + dur + 0.1);
+    });
+  }
+
+  /* ---------- les sons ---------- */
   const SOUNDS = {
-    // ouverture d'une fenêtre système : double bip cristallin
+    // ouverture d'une fenêtre système : souffle aérien + deux cloches de verre
     open() {
-      tone(N(84), 0, 0.09, 'triangle', 0.4);
-      tone(N(91), 0.055, 0.18, 'sine', 0.34);
-      noise(0, 0.08, 0.06, 0, 6000);
+      swoosh(0, 0.32, 700, 4200, { vol: 0.035, q: 0.9 });
+      bell(N(86), 0.06, { vol: 0.07, dur: 0.9, ratio: 4.0, index: 0.6, pan: -0.15 });
+      bell(N(93), 0.12, { vol: 0.045, dur: 1.1, ratio: 4.0, index: 0.5, pan: 0.2 });
     },
-    // changement d'onglet : bip discret
-    tab() { tone(N(88), 0, 0.07, 'sine', 0.28); },
-    // quête validée : « ding » brillant
+    // changement d'onglet : petit « tic » de verre
+    tab() { bell(N(91), 0, { vol: 0.06, dur: 0.3, ratio: 5, index: 0.4, wet: 0.25 }); },
+    // quête validée : carillon cristallin à trois notes
     quest() {
-      tone(N(88), 0, 0.22, 'sine', 0.55);
-      tone(N(95), 0.06, 0.4, 'sine', 0.4);
-      tone(N(100), 0.12, 0.5, 'triangle', 0.16);
+      bell(N(84), 0, { vol: 0.1, dur: 1.2, ratio: 3.5, index: 0.9, pan: -0.2 });
+      bell(N(88), 0.07, { vol: 0.08, dur: 1.2, ratio: 3.5, index: 0.8, pan: 0 });
+      bell(N(91), 0.14, { vol: 0.07, dur: 1.6, ratio: 3.5, index: 0.7, pan: 0.2 });
+      swoosh(0.1, 0.6, 5000, 9000, { vol: 0.012, q: 2, wet: 0.6 });
     },
-    // montée de niveau : arpège ascendant + accord
+    // montée de niveau : souffle qui monte, arpège de cloches, nappe lumineuse
     levelup() {
-      [72, 76, 79, 84, 88].forEach((n, i) => tone(N(n), i * 0.075, 0.25, 'triangle', 0.2));
-      [84, 88, 91].forEach((n) => tone(N(n), 0.4, 0.9, 'sine', 0.13));
-      noise(0.38, 0.6, 0.04, 0, 7000);
+      swoosh(0, 0.7, 400, 6000, { vol: 0.04, q: 0.8 });
+      [72, 76, 79, 83, 84, 88].forEach((n, i) => bell(N(n), 0.12 + i * 0.075, { vol: 0.075, dur: 1.4, ratio: 3.5, index: 0.8, pan: -0.5 + i * 0.2 }));
+      pad([N(60), N(64), N(67), N(71)], 0.45, { vol: 0.04, dur: 2.2, attack: 0.35, cutoff: 2200 });
+      bell(N(96), 0.7, { vol: 0.035, dur: 2, ratio: 4.5, index: 0.4, wet: 0.8 });
     },
-    // montée de rang / nouveau statut : fanfare
+    // montée de rang / nouveau statut : grave profond, nappe épique qui s'ouvre, cascade de cloches
     rankup() {
-      const brass = (n, t, d, v) => { tone(N(n), t, d, 'sawtooth', v, null, 2200); tone(N(n) * 1.003, t, d, 'sawtooth', v * 0.6, null, 1800); };
-      brass(67, 0, 0.16, 0.12); brass(67, 0.17, 0.16, 0.12); brass(67, 0.34, 0.16, 0.12);
-      brass(72, 0.52, 0.5, 0.14); brass(76, 0.52, 0.5, 0.1); brass(79, 0.52, 0.5, 0.1);
-      brass(84, 1.0, 1.2, 0.15); brass(88, 1.0, 1.2, 0.11); brass(91, 1.0, 1.2, 0.11);
-      tone(N(36), 1.0, 1.2, 'sine', 0.25);
-      noise(1.0, 1.1, 0.05, 0, 6000);
+      sub(70, 45, 0, 1.2, 0.22);
+      swoosh(0, 1.2, 200, 5000, { vol: 0.05, q: 0.7 });
+      pad([N(48), N(55), N(60), N(64), N(67), N(74)], 0.1, { vol: 0.055, dur: 3.4, attack: 0.9, cutoff: 2600 });
+      [67, 72, 76, 79, 84, 88, 91].forEach((n, i) => bell(N(n), 0.6 + i * 0.09, { vol: 0.07, dur: 1.8, ratio: 3.5, index: 0.7, pan: Math.sin(i) * 0.5 }));
+      bell(N(96), 1.35, { vol: 0.05, dur: 2.6, ratio: 4, index: 0.5, wet: 0.85 });
     },
-    // apparition / combat de boss : grondement grave + alarme
+    // apparition / combat de boss : bourdon sombre qui enfle, battements de cœur, dissonance lointaine
     boss() {
-      tone(70, 0, 1.8, 'sawtooth', 0.28, 38, 400);
-      tone(73, 0, 1.8, 'sawtooth', 0.2, 40, 300);
-      noise(0, 1.6, 0.18, 220);
-      [0.15, 0.55, 0.95].forEach((t) => { tone(N(69), t, 0.18, 'square', 0.08, null, 1800); tone(N(63), t + 0.2, 0.18, 'square', 0.08, null, 1800); });
-      tone(N(33), 0, 1.5, 'sine', 0.35);
+      drone(N(29), 0, 2.6, 0.13);
+      swoosh(0, 2.2, 90, 400, { vol: 0.06, q: 0.6, wet: 0.6 });
+      [0.35, 0.6, 1.35, 1.6].forEach((t, i) => sub(i % 2 ? 52 : 62, 38, t, 0.32, i % 2 ? 0.18 : 0.26));
+      bell(N(74), 0.9, { vol: 0.03, dur: 2.2, ratio: 2.76, index: 1.4, pan: -0.4, wet: 0.9 });
+      bell(N(75), 1.0, { vol: 0.025, dur: 2.2, ratio: 2.76, index: 1.4, pan: 0.4, wet: 0.9 });
     },
-    // boss vaincu
+    // boss vaincu : impact sourd, souffle, arpège de victoire, nappe majeure
     victory() {
-      tone(90, 0, 0.5, 'sawtooth', 0.2, 45, 500); noise(0, 0.5, 0.15, 300);
-      [72, 76, 79, 84, 88, 91, 96].forEach((n, i) => tone(N(n), 0.3 + i * 0.07, 0.3, 'triangle', 0.17));
-      [84, 88, 91, 96].forEach((n) => tone(N(n), 0.85, 1.2, 'sine', 0.11));
+      sub(90, 40, 0, 0.7, 0.26);
+      swoosh(0, 0.9, 300, 7000, { vol: 0.05, q: 0.7 });
+      [72, 76, 79, 84, 88, 91].forEach((n, i) => bell(N(n), 0.35 + i * 0.08, { vol: 0.07, dur: 1.6, ratio: 3.5, index: 0.8, pan: -0.5 + i * 0.2 }));
+      pad([N(60), N(64), N(67), N(72), N(76)], 0.7, { vol: 0.05, dur: 2.8, attack: 0.5, cutoff: 2400 });
     },
-    // avertissement / pénalité
+    // avertissement / pénalité : deux pulsations graves et une cloche en triton, inquiétant mais doux
     warn() {
-      [0, 0.3, 0.6].forEach((t) => { tone(N(81), t, 0.14, 'square', 0.2, null, 2500); tone(N(76), t + 0.14, 0.14, 'square', 0.2, null, 2500); });
-      tone(N(40), 0, 1, 'sawtooth', 0.12, null, 300);
+      sub(110, 80, 0, 0.45, 0.2); sub(104, 76, 0.5, 0.45, 0.2);
+      bell(N(69), 0.05, { vol: 0.06, dur: 1.4, ratio: 1.41, index: 1.1, pan: -0.2, wet: 0.6 });
+      bell(N(63), 0.55, { vol: 0.06, dur: 1.8, ratio: 1.41, index: 1.1, pan: 0.2, wet: 0.7 });
+      pad([N(45), N(51)], 0, { vol: 0.03, dur: 1.8, attack: 0.3, cutoff: 600 });
     },
-    // niveau perdu
-    down() { [76, 72, 67, 60].forEach((n, i) => tone(N(n), i * 0.12, 0.25, 'triangle', 0.3)); tone(N(36), 0.3, 0.8, 'sawtooth', 0.12, 30, 300); }
+    // niveau perdu : cloches mineures qui descendent dans le grave
+    down() {
+      [79, 75, 72, 67].forEach((n, i) => bell(N(n), i * 0.16, { vol: 0.07, dur: 1.4, ratio: 2, index: 0.6, pan: 0.3 - i * 0.2, wet: 0.55 }));
+      pad([N(43), N(46), N(50)], 0.3, { vol: 0.035, dur: 2, attack: 0.4, cutoff: 700 });
+    }
   };
 
   SFX.play = function (name) {
@@ -114,7 +205,7 @@
     try {
       if (!init()) return;
       if (ctx.state === 'suspended') ctx.resume().catch(() => {});
-      master.gain.value = SFX.volume * 0.5;
+      applyVolume();
       SOUNDS[name]();
     } catch (e) { /* le son ne doit jamais bloquer l'application */ }
   };
