@@ -15,7 +15,7 @@
   const REGEN_COOLDOWN = 7; // jours entre deux régénérations complètes
   const QUESTIONS = window.QUESTIONS;
   const KEY = 'leveling.system.v1';
-  const APP_VERSION = '15';
+  const APP_VERSION = '16';
   const DKEYS = ['sport', 'finance', 'relation'];
   const RANKS = ['E', 'D', 'C', 'B', 'A', 'S'];
   const PENALTY_RATE = 0.6;      // % de l'XP de la quête perdu si non faite
@@ -401,10 +401,12 @@
     }
     // Quête de pénalité : si moins de 2/3 des quêtes du jour ont été validées.
     if (belowThird) {
-      const pick = PENALTIES[Math.floor(Math.random() * PENALTIES.length)];
+      const k = tier(avgLevel());
+      const pool = PENALTIES.filter((x) => (x.min || 0) <= k); // certaines pénalités n'existent qu'à partir d'un rang
+      const pick = pool[Math.floor(Math.random() * pool.length)];
       const stake = total > 0 ? loss : { sport: 30, finance: 30, relation: 30 };
       state.lastPenaltyDay = dk(now);
-      pen = { id: uid(), t: pick.t(tier(avgLevel())), desc: pick.desc, created: now.getTime(), deadline: now.getTime() + PENALTY_DELAY, loss: stake,
+      pen = { id: uid(), t: pick.t(k), desc: pick.desc, created: now.getTime(), deadline: now.getTime() + PENALTY_DELAY, loss: stake,
         reason: `${dayDone}/${closedDaily.length} quêtes du jour validées (minimum : ${Math.ceil(closedDaily.length * 2 / 3)})` };
       state.penalties.push(pen);
       log('pen', `Moins de 2/3 des quêtes validées (${dayDone}/${closedDaily.length}) → Zone de pénalité : « ${pen.t} »`);

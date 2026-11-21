@@ -126,7 +126,24 @@
     { t: (k) => `Zéro plaisir pendant ${V([2, 2, 3, 4, 5, 7])(k)} jours`, desc: 'Ni sucre, ni alcool, ni série, ni jeu vidéo, ni livraison.' },
     { t: (k) => `Douche froide de ${V([1, 1, 2, 3, 4, 5])(k)} min`, desc: 'Forge ta discipline.' },
     { t: (k) => `Douche froide chaque jour pendant ${V([3, 3, 4, 5, 6, 7])(k)} jours`, desc: 'Au moins 1 min d\'eau froide, tous les jours, sans exception.' },
-    { t: () => 'Mettre 50 € de côté sur ton épargne', desc: 'Virement immédiat vers un livret ou un compte d\'épargne. L\'échec a un prix.' }
+    { t: () => 'Mettre 50 € de côté sur ton épargne', desc: 'Virement immédiat vers un livret ou un compte d\'épargne. L\'échec a un prix.' },
+
+    // --- Relation ---
+    { t: (k) => { const n = V([1, 1, 2, 2, 3, 3])(k); return `Appeler ${n} personne${n > 1 ? 's' : ''} avec qui tu as perdu contact`; }, desc: 'Un vrai appel vocal, pas un message.' },
+    { t: (k) => { const n = V([1, 2, 2, 3, 4, 5])(k); return `Faire un compliment sincère en face à ${n} inconnu${n > 1 ? 's' : ''}`; }, desc: 'Sans rien attendre en retour.' },
+    { t: (k) => `Inviter quelqu'un dans les 48 h : ${V(['1 invitation', '1 invitation', '1 invitation', '1 invitation et rendez-vous fixé', '1 invitation et rendez-vous fixé', '2 invitations'])(k)}`, desc: 'Café, sortie ou rendez-vous amoureux.' },
+    { t: (k) => { const h = V([2, 2, 3, 4, 5, 0])(k); return `Soirée sans téléphone avec ton entourage ${h ? `pendant ${h} h` : 'toute la soirée'}`; }, desc: 'Téléphone dans une autre pièce.' },
+    { t: (k) => { const n = V([1, 1, 1, 1, 2, 2])(k); return `T'inscrire à une activité de groupe et y aller ${n > 1 ? `${n} fois` : 'une fois'} cette semaine`; }, desc: 'Club, cours, association, sport collectif.' },
+    { min: 1, t: () => 'Conversation difficile : aborder le sujet que tu repousses avec quelqu\'un', desc: 'Calmement, mais sans l\'éviter une fois de plus.' },
+
+    // --- Finance ---
+    { t: (k) => `Gel des dépenses pendant ${V([3, 3, 4, 5, 6, 7])(k)} jours`, desc: 'Uniquement loyer, factures et courses de base.' },
+    { t: (k) => { const n = V([1, 1, 2, 2, 3, 3])(k); return `Vendre ${n} objet${n > 1 ? 's' : ''} inutilisé${n > 1 ? 's' : ''} et verser la somme en épargne`; }, desc: 'Mise en vente dans les 24 h.' },
+    { t: (k) => { const n = V([1, 1, 1, 1, 2, 2])(k); return `Résilier ou renégocier ${n > 1 ? `${n} abonnements ou contrats` : 'un abonnement ou un contrat'}`; }, desc: 'Box, assurance, téléphone, streaming…' },
+    { t: (k) => { const n = V([1, 1, 2, 2, 3, 3])(k); return `Audit de tes relevés bancaires sur ${n} mois, ligne par ligne`; }, desc: 'Avec une liste écrite des économies possibles.' },
+    { t: (k) => { const [d, e] = V([[2, 40], [3, 50], [3, 50], [4, 60], [5, 70], [7, 80]])(k); return `Pas de carte bancaire pendant ${d} jours : ${e} € en liquide maximum`; }, desc: 'Retire la somme à l\'avance. Quand c\'est fini, c\'est fini.' },
+    { t: (k) => `Faire un don de ${V([10, 15, 20, 25, 35, 50])(k)} € à une association`, desc: 'Restos du Cœur, Croix-Rouge… L\'échec profite au moins à quelqu\'un.' },
+    { t: (k) => `${V([1, 1, 2, 2, 3, 3])(k)} h de travail sur un revenu secondaire, sans distraction`, desc: 'Téléphone éteint, minuteur lancé.' }
   ];
 
 
