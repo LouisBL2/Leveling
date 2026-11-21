@@ -15,7 +15,7 @@
   const REGEN_COOLDOWN = 7; // jours entre deux régénérations complètes
   const QUESTIONS = window.QUESTIONS;
   const KEY = 'leveling.system.v1';
-  const APP_VERSION = '18';
+  const APP_VERSION = '19';
   const DKEYS = ['sport', 'finance', 'relation'];
   const RANKS = ['E', 'D', 'C', 'B', 'A', 'S'];
   const PENALTY_RATE = 0.6;      // % de l'XP de la quête perdu si non faite
@@ -535,6 +535,8 @@
     DKEYS.forEach((d) => { state.domains[d] = { level: stats[d], xp: 0, base: stats[d] }; });
     state.calibrated = true;
     markPassedBosses();
+    // gardien accessible dès la fin du questionnaire : son compteur de 30 jours démarre maintenant
+    DKEYS.forEach((d) => { const L = state.domains[d].level; if (sealed(d, L)) { if (!state.bossTimers[d] || state.bossTimers[d].L !== L) startBossTimer(d, L); } else delete state.bossTimers[d]; });
     if (first) { state.setupDay = dk(new Date()); state.lastRegen = dk(new Date()); }
     if (first || !state.quests.length) applyRecommendation();
     if (first) state.persona = personaKey(); else checkPersona();
