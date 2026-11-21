@@ -9,13 +9,13 @@
   const { CLASSES, HYBRIDS, avatar, bossSprite } = window.PERSONA;
   const BOSSES = window.BOSSES;
   const ACHIEVEMENTS = window.ACHIEVEMENTS;
-  const BOSS_DAYS = { mini: 21, big: 30 };     // délai pour vaincre un gardien apparu
+  const BOSS_DAYS = { mini: 30, big: 30 };     // délai maximum pour vaincre un gardien apparu
   const BOSS_FAIL_RATE = { mini: 0.35, big: 0.5 }; // part de need(L) perdue si le délai expire
   const CHART_COLORS = { sport: '#2b9fd6', finance: '#b8891f', relation: '#d9468f' }; // palette validée (daltonisme, fond sombre)
   const REGEN_COOLDOWN = 7; // jours entre deux régénérations complètes
   const QUESTIONS = window.QUESTIONS;
   const KEY = 'leveling.system.v1';
-  const APP_VERSION = '16';
+  const APP_VERSION = '17';
   const DKEYS = ['sport', 'finance', 'relation'];
   const RANKS = ['E', 'D', 'C', 'B', 'A', 'S'];
   const PENALTY_RATE = 0.6;      // % de l'XP de la quête perdu si non faite
@@ -99,11 +99,15 @@
     state.stats.maxStreak = Math.max(state.stats.maxStreak, state.streak || 0);
     if (!state.lastExport) state.lastExport = state.created || Date.now();
     state.quests.forEach((q) => { if (q.tgt && typeof q.prog !== 'number') q.prog = 0; });
+    if (!state.bossDays30) {
+      DKEYS.forEach((d) => { const t = state.bossTimers[d]; const b = t && bossAt(d, t.L); if (b && !b.big) t.deadline += 9 * 864e5; });
+      state.bossDays30 = true;
+    }
     // un boss déjà présent au moment de la mise à jour reçoit son délai à partir d'aujourd'hui
     if (state.calibrated) DKEYS.forEach((d) => { const L = state.domains[d].level; if (sealed(d, L) && !state.bossTimers[d]) startBossTimer(d, L); });
   }
   function save() {
-    if (state.calibrated) { recordHistory(); checkAchievements(); }
+    if (state.calibrated) { recordHistory(); checkAchievements(); noteWaiting(); }
     try { localStorage.setItem(KEY, JSON.stringify(state)); }
     catch (e) { toast('⚠ Impossible d\'enregistrer (stockage plein ou bloqué)', 'bad'); }
   }
@@ -120,6 +124,17 @@
   const bossAt = (d, L) => BOSSES[d].find((b) => b.lvl === L);
   const bossReward = (b) => Math.round(need(b.lvl) * (b.big ? 1 : 0.5));
   const nextBoss = (d) => BOSSES[d].find((b) => !defeated(d, b.lvl)) || null;
+  // Une stat est « en attente du boss » quand elle est bloquée à un palier non vaincu :
+  // ses quêtes ne comptent alors ni pour le seuil des 2/3, ni pour la perte d'XP.
+  const bossWaiting = (d) => sealed(d, state.domains[d].level);
+  // quêtes facultatives aujourd'hui : stat bloquée maintenant, ou bloquée plus tôt dans la journée
+  const exemptToday = (d) => bossWaiting(d) || !!(state.waitSeen && state.waitSeen.day === dk(new Date()) && state.waitSeen.doms.includes(d));
+  // mémorise les stats qui ont été en attente d'un boss à un moment de la journée
+  function noteWaiting() {
+    const t = dk(new Date());
+    if (!state.waitSeen || state.waitSeen.day !== t) state.waitSeen = { day: t, doms: [] };
+    DKEYS.filter(bossWaiting).forEach((d) => { if (!state.waitSeen.doms.includes(d)) state.waitSeen.doms.push(d); });
+  }
   function markPassedBosses() {
     DKEYS.forEach((d) => BOSSES[d].forEach((b) => {
       if (b.lvl < state.domains[d].level && !defeated(d, b.lvl)) state.bosses[d].push(b.lvl);
@@ -353,7 +368,10 @@
     const missed = [];
     // Règle du tiers : on mesure la journée qui vient de se terminer AVANT de réinitialiser.
     const curDay = cycleKey('daily', now);
-    const closedDaily = state.quests.filter((q) => q.p === 'daily' && q.cycle !== curDay);
+    const waiting = DKEYS.filter(bossWaiting);
+    // + les stats qui étaient bloquées pendant la journée écoulée (boss vaincu en cours de route)
+    if (state.waitSeen && state.waitSeen.day !== curDay) state.waitSeen.doms.forEach((d) => { if (!waiting.includes(d)) waiting.push(d); });
+    const closedDaily = state.quests.filter((q) => q.p === 'daily' && q.cycle !== curDay && !waiting.includes(q.d));
     let dayRatio = 1, dayDone = 0;
     if (closedDaily.length) {
       const skippedDays = closedDaily.some((q) => cyclesBetween('daily', q.cycle, curDay) > 1);
@@ -368,6 +386,7 @@
       const gap = cyclesBetween(q.p, q.cycle, cur);
       let m = (q.done ? 0 : 1) + Math.max(0, gap - 1);
       m = Math.min(m, PERIOD[q.p].cap);
+      if (waiting.includes(q.d)) m = 0; // boss en attente : quête facultative, aucune perte
       if (m > 0 && !state.settings.pause) {
         loss[q.d] += Math.round(q.xp * PENALTY_RATE) * m;
         missed.push({ t: q.t, d: q.d, m, amt: Math.round(q.xp * PENALTY_RATE) * m });
@@ -449,7 +468,7 @@
 
   function checkDailyBonus() {
     const today = dk(new Date());
-    const dailies = state.quests.filter((q) => q.p === 'daily');
+    const dailies = state.quests.filter((q) => q.p === 'daily' && !exemptToday(q.d));
     if (!dailies.length || !dailies.every((q) => q.done) || state.lastFullDay === today) return;
     const prev = { streak: state.streak, lastFullDay: state.lastFullDay };
     const yesterday = dk(new Date(Date.now() - 864e5));
@@ -638,6 +657,7 @@
         <div class="boss-name">${esc(b.name)}</div>
         <div class="boss-task">${esc(b.task)}</div>
         <div class="boss-meta">${ready ? `<b class="red-t">⚠ Bloque ta progression</b>` : `Apparaît dans ${left} niveau${left > 1 ? 'x' : ''}`} · Récompense +${bossReward(b)} XP</div>
+        ${ready ? `<div class="boss-meta">⏸ Quêtes ${DOMAINS[d].label} facultatives tant qu'il n'est pas vaincu</div>` : ''}
         ${ready && state.bossTimers[d] ? `<div class="boss-meta">⏳ Délai : <b class="cd red-t" data-until="${state.bossTimers[d].deadline}">${fmtLeft(state.bossTimers[d].deadline - Date.now())}</b> · sinon −${Math.round(need(b.lvl) * (b.big ? BOSS_FAIL_RATE.big : BOSS_FAIL_RATE.mini))} XP</div>` : ''}
       </div>
       ${ready ? `<button class="btn sm red" data-act="boss" data-d="${d}" data-l="${b.lvl}">Affronter</button>` : ''}
@@ -650,7 +670,7 @@
       <div class="q-rank r-${q.r}">${q.r}</div>
       <div class="q-body">
         <div class="q-title">${esc(q.t)}</div>
-        <div class="q-meta"><span style="color:${M.color}">${M.icon} ${M.label}</span> · +${q.xp} XP · <span class="pen">−${Math.round(q.xp * PENALTY_RATE)} si échec</span></div>
+        <div class="q-meta"><span style="color:${M.color}">${M.icon} ${M.label}</span> · +${q.xp} XP · ${(q.p === 'daily' ? exemptToday(q.d) : bossWaiting(q.d)) ? '<span class="wait">⏸ boss en attente : facultative</span>' : `<span class="pen">−${Math.round(q.xp * PENALTY_RATE)} si échec</span>`}</div>
         ${q.desc ? `<div class="q-desc">${esc(q.desc)}</div>` : ''}
         ${q.tgt ? `<div class="tgt">
           <div class="tgt-bar"><i style="width:${Math.min(100, ((q.prog || 0) / q.tgt.n) * 100)}%"></i></div>
@@ -755,8 +775,9 @@
   /* ---------------- en-tête « Ma journée » (haut de l'onglet Quêtes) ---------------- */
   function todayHeader() {
     const now = new Date(), reset = nextReset('daily');
-    const dl = state.quests.filter((q) => q.p === 'daily'), dd = dl.filter((q) => q.done).length;
+    const dl = state.quests.filter((q) => q.p === 'daily' && !exemptToday(q.d)), dd = dl.filter((q) => q.done).length;
     const need3 = Math.ceil(dl.length * 2 / 3), safe = dd >= need3;
+    const waitNote = DKEYS.filter(exemptToday).map((d) => `${DOMAINS[d].icon} ${DOMAINS[d].label}`).join(', ');
     const pct = dl.length ? (dd / dl.length) * 100 : 0, mark = dl.length ? (need3 / dl.length) * 100 : 0;
     const dayName = now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
     return `<section class="window today-head">
@@ -771,6 +792,7 @@
           <div class="td-txt">${safe ? '✔ Seuil des 2/3 atteint' : `⚠ Encore ${need3 - dd} quête(s) pour éviter la Zone de pénalité`} · <b>${dd}/${dl.length}</b></div>
           <div class="td-sub">Chaque quête manquée coûte de l'XP.</div>
         </div>` : ''}
+        ${waitNote ? `<div class="td-wait">⏸ Boss en attente (${waitNote}) : ces quêtes sont facultatives et ne comptent pas pour la pénalité tant que le gardien n'est pas vaincu.</div>` : ''}
       </section>`;
   }
 
