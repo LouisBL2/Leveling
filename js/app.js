@@ -15,7 +15,7 @@
   const REGEN_COOLDOWN = 7; // jours entre deux régénérations complètes
   const QUESTIONS = window.QUESTIONS;
   const KEY = 'leveling.system.v1';
-  const APP_VERSION = '14';
+  const APP_VERSION = '15';
   const DKEYS = ['sport', 'finance', 'relation'];
   const RANKS = ['E', 'D', 'C', 'B', 'A', 'S'];
   const PENALTY_RATE = 0.6;      // % de l'XP de la quête perdu si non faite
@@ -268,6 +268,7 @@
   }
   function toggleChallenge() {
     const c = state.challenge; if (!c) return;
+    if (!c.done && penaltyLock()) return lockToast();
     c.done = !c.done;
     if (c.done) {
       addXP(c.d, c.xp); state.stats.challengesDone++;
@@ -285,6 +286,7 @@
   function addProgress(id, amount) {
     const q = state.quests.find((x) => x.id === id);
     if (!q || !q.tgt || !isFinite(amount) || amount === 0) return;
+    if (amount > 0 && penaltyLock()) return lockToast();
     q.prog = Math.max(0, Math.round(((q.prog || 0) + amount) * 100) / 100);
     if (!q.done && q.prog >= q.tgt.n) { state.stats.targetsDone++; completeQuest(q); }
     else if (q.done && q.prog < q.tgt.n) { state.stats.targetsDone = Math.max(0, state.stats.targetsDone - 1); uncompleteQuest(q); }
@@ -415,6 +417,9 @@
     if (missed.length || pen || failed.length || failedBosses.length) showPenaltyAlert(missed, pen, failed, failedBosses);
   }
 
+  // Zone de pénalité bloquante : tant qu'une pénalité est en cours, aucune quête ne peut être validée.
+  const penaltyLock = () => state.penalties.length > 0 && !state.settings.pause;
+  function lockToast() { toast('🔒 Zone de pénalité : accomplis d\'abord ta pénalité', 'bad'); window.SFX.play('warn'); }
   function completeQuest(q) {
     q.done = true;
     addXP(q.d, q.xp);
@@ -434,6 +439,7 @@
   function toggleQuest(id) {
     const q = state.quests.find((x) => x.id === id);
     if (!q || q.tgt) return; // les quêtes chiffrées se valident en remplissant l'objectif
+    if (!q.done && penaltyLock()) return lockToast();
     if (!q.done) completeQuest(q); else uncompleteQuest(q);
     checkPersona();
     save(); render(); flushOverlays();
@@ -647,11 +653,11 @@
         ${q.tgt ? `<div class="tgt">
           <div class="tgt-bar"><i style="width:${Math.min(100, ((q.prog || 0) / q.tgt.n) * 100)}%"></i></div>
           <div class="tgt-row"><span class="tgt-v"><b>${fmtN(q.prog || 0)}</b> / ${fmtN(q.tgt.n)} ${esc(q.tgt.unit)}</span>
-            <form class="tgt-form" data-id="${q.id}"><input name="v" type="number" inputmode="decimal" step="any" value="${q.tgt.step}" aria-label="Quantité à ajouter"><button class="btn sm" type="submit">+ Ajouter</button></form></div>
+            <form class="tgt-form" data-id="${q.id}"><input name="v" type="number" inputmode="decimal" step="any" value="${q.tgt.step}" aria-label="Quantité à ajouter"><button class="btn sm" type="submit" ${penaltyLock() ? 'disabled' : ''}>+ Ajouter</button></form></div>
         </div>` : ''}
       </div>
       ${q.tgt ? `<div class="check tgt-check" aria-hidden="true">${q.done ? '✔' : Math.floor(((q.prog || 0) / q.tgt.n) * 100) + '%'}</div>`
-        : `<button class="check" data-act="toggle" data-id="${q.id}" aria-label="${q.done ? 'Annuler' : 'Valider'}">${q.done ? '✔' : ''}</button>`}
+        : `<button class="check ${!q.done && penaltyLock() ? 'locked' : ''}" data-act="toggle" data-id="${q.id}" aria-label="${q.done ? 'Annuler' : 'Valider'}">${q.done ? '✔' : penaltyLock() ? '🔒' : ''}</button>`}
     </div>`;
   }
   function challengeCard() {
@@ -663,7 +669,7 @@
         <div class="q-rank r-${c.r}">${c.r}</div>
         <div class="q-body"><div class="q-title">${esc(c.t)}</div>
           <div class="q-meta"><span style="color:${M.color}">${M.icon} ${M.label}</span> · <b class="ch-xp">+${c.xp} XP (×2)</b> · facultatif, sans pénalité</div></div>
-        <button class="check" data-act="challenge" aria-label="${c.done ? 'Annuler' : 'Valider'}">${c.done ? '✔' : ''}</button>
+        <button class="check ${!c.done && penaltyLock() ? 'locked' : ''}" data-act="challenge" aria-label="${c.done ? 'Annuler' : 'Valider'}">${c.done ? '✔' : penaltyLock() ? '🔒' : ''}</button>
       </div>
       <div class="sec-info"><span>Nouveau défi dans</span><b class="cd" data-until="${nextReset('daily').getTime()}">${fmtLeft(nextReset('daily') - Date.now())}</b></div>
     </section>`;
@@ -679,6 +685,7 @@
         <p class="muted center">${esc(p.desc)}</p>
         ${p.reason ? `<p class="center tiny" style="color:#ffb3c0">Motif : ${esc(p.reason)}</p>` : ''}
         <div class="pen-info"><span>Temps restant : <b class="cd" data-until="${p.deadline}">${fmtLeft(p.deadline - now)}</b></span><span>Réussite : +${Math.round(lost * PENALTY_RECOVER)} XP récupérée</span><span>Échec : −${lost} XP</span></div>
+        <p class="center tiny lock-note">🔒 Zone de pénalité : la validation de toutes les quêtes est bloquée jusqu'à ce que cette pénalité soit accomplie.</p>
         <button class="btn red" data-act="penalty" data-id="${p.id}">Pénalité accomplie</button>
       </section>`;
     }).join('');
@@ -1053,7 +1060,8 @@
       <ul class="pen-list">${list}${fl}</ul>
       ${missed.length && !pen ? '<p class="center muted tiny">Tu as validé au moins 2/3 des quêtes du jour : pas de quête de pénalité, seulement la perte d\'XP.</p>' : ''}
       ${pen ? `<p class="center">${esc(pen.reason)}.<br>Tu es transféré dans la <b class="red-t">ZONE DE PÉNALITÉ</b>.</p>
-      <div class="pen-title">${esc(pen.t)}</div><p class="center muted">Délai : 24 h. Réussite : 50 % de l'XP perdue récupérée. Échec : la perte est appliquée une seconde fois.</p>` : ''}`,
+      <div class="pen-title">${esc(pen.t)}</div><p class="center muted">Délai : 24 h. Réussite : 50 % de l'XP perdue récupérée. Échec : la perte est appliquée une seconde fois.</p>
+      <p class="center tiny lock-note">🔒 Tant que la pénalité n'est pas accomplie, tu ne peux valider aucune quête.</p>` : ''}`,
     [{ label: 'Accepter', primary: true, red: true }], 'danger', 'warn');
   }
 

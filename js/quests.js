@@ -117,19 +117,18 @@
   // Pénalités adaptées au rang global : chaque intitulé dépend de k = 0 (rang E) … 5 (rang S).
   const V = (arr) => (k) => arr[Math.max(0, Math.min(5, k))];
   const PENALTIES = [
-    { t: (k) => `${V([20, 40, 60, 100, 150, 200])(k)} pompes`, desc: 'En autant de séries que nécessaire, avant la fin du délai.' },
-    { t: (k) => `${V([30, 50, 80, 100, 150, 200])(k)} squats + ${V([15, 25, 40, 50, 75, 100])(k)} fentes`, desc: 'Sans tricher sur l\'amplitude.' },
-    { t: (k) => `${V([10, 20, 30, 50, 75, 100])(k)} burpees`, desc: 'Le Système ne pardonne pas.' },
-    { t: (k) => `Course de ${V([1, 2, 3, 5, 8, 10])(k)} km`, desc: 'Peu importe l\'allure, mais sans marcher.' },
-    { t: (k) => `Gainage ${V([1, 2, 3, 5, 7, 10])(k)} min cumulées`, desc: 'Planche, côtés, dos.' },
+    { t: (k) => `Réveil à 5 h et séance de sport à jeun ${V(['demain', 'demain', 'pendant 2 jours', 'pendant 2 jours', 'pendant 3 jours', 'pendant 3 jours'])(k)}`, desc: 'Pas de snooze. Le Système voit tout.' },
+    { t: (k) => `Chaise contre le mur : ${V([3, 4, 6, 8, 12, 15])(k)} min cumulées`, desc: 'Cuisses à l\'horizontale, dos collé au mur.' },
+    { t: (k) => `Monter et descendre ${V([10, 15, 20, 30, 45, 60])(k)} étages à pied`, desc: 'En une seule session.' },
+    { t: (k) => { const km = V([0.5, 0.5, 1, 1, 1.5, 2])(k), b = V([25, 35, 50, 50, 75, 100])(k); const kms = String(km).replace('.', ','); return `Circuit punitif : ${kms} km de course, ${b} burpees, ${kms} km de course`; }, desc: 'Chronométré, sans pause entre les blocs.' },
+    { t: (k) => { const n = V([1, 2, 2, 3, 4, 5])(k); return `Rejet volontaire : ${n} demande${n > 1 ? 's' : ''} qui ${n > 1 ? 'risquent' : 'risque'} un refus`; }, desc: 'Demander une réduction, un service inhabituel, un numéro… Le but : affronter le « non ».' },
+    { t: (k) => `Mode moine pendant ${V([24, 24, 36, 48, 60, 72])(k)} h`, desc: 'Téléphone en noir et blanc, réseaux sociaux et apps de loisir supprimés.' },
+    { t: (k) => `Zéro plaisir pendant ${V([2, 2, 3, 4, 5, 7])(k)} jours`, desc: 'Ni sucre, ni alcool, ni série, ni jeu vidéo, ni livraison.' },
     { t: (k) => `Douche froide de ${V([1, 1, 2, 3, 4, 5])(k)} min`, desc: 'Forge ta discipline.' },
-    { t: (k) => `${V([12, 24, 24, 24, 36, 48])(k)} h sans écran récréatif`, desc: 'Ni réseaux sociaux, ni séries, ni jeux.' },
-    { t: (k) => `${V([24, 24, 48, 48, 72, 72])(k)} h sans aucune dépense non essentielle`, desc: 'Seulement le strict nécessaire.' },
-    { t: (k) => `Écrire ${V(['un paragraphe', 'une demi-page', 'une page', 'une page', 'deux pages', 'trois pages'])(k)} de bilan sur l'échec`, desc: 'Pourquoi ? Qu\'est-ce que tu changes demain ?' },
-    { t: () => 'Ranger et nettoyer entièrement ton logement', desc: 'Environnement propre, esprit clair.' },
-    { t: (k) => `${V([50, 100, 150, 200, 300, 400])(k)} sauts à la corde + ${V([10, 20, 30, 50, 70, 100])(k)} pompes`, desc: 'Pas d\'excuse.' },
-    { t: () => 'Appeler un proche que tu négliges', desc: 'Une vraie conversation, pas un message.' }
+    { t: (k) => `Douche froide chaque jour pendant ${V([3, 3, 4, 5, 6, 7])(k)} jours`, desc: 'Au moins 1 min d\'eau froide, tous les jours, sans exception.' },
+    { t: () => 'Mettre 50 € de côté sur ton épargne', desc: 'Virement immédiat vers un livret ou un compte d\'épargne. L\'échec a un prix.' }
   ];
+
 
 
   window.GAME = { DIFF, PERIOD, DOMAINS, CATALOG: C, PENALTIES };
