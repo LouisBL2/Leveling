@@ -6,7 +6,8 @@
    ========================================================= */
 (function () {
   let ctx = null, bus = null, verb = null, noiseBuf = null, out = null;
-  const SFX = { enabled: true, volume: 0.7 };
+  let musicOut = null, mBus = null, mVerb = null, target = 'sfx';
+  const SFX = { enabled: true, volume: 0.7, music: true, musicVolume: 0.5 };
 
   /* ---------- chaîne audio : voix → (sec + réverb) → compresseur doux → sortie ---------- */
   function makeImpulse(seconds, decay) {
@@ -34,9 +35,17 @@
 
     bus = ctx.createGain(); bus.connect(out);                     // signal sec
     verb = ctx.createGain(); verb.gain.value = 1;                 // envoi réverb
-    const conv = ctx.createConvolver(); conv.buffer = makeImpulse(2.6, 3.2);
-    const wet = ctx.createGain(); wet.gain.value = 0.55;
+    const conv = ctx.createConvolver(); conv.buffer = makeImpulse(1.1, 4.5); // réverb courte = peu d'écho
+    const wet = ctx.createGain(); wet.gain.value = 0.18;
     verb.connect(conv); conv.connect(wet); wet.connect(out);
+
+    // bus séparé pour la musique (son propre volume et sa propre réverb, plus ample)
+    musicOut = ctx.createGain(); musicOut.gain.value = 0.0001; musicOut.connect(tone);
+    mBus = ctx.createGain(); mBus.connect(musicOut);
+    mVerb = ctx.createGain();
+    const mConv = ctx.createConvolver(); mConv.buffer = makeImpulse(3.2, 3);
+    const mWet = ctx.createGain(); mWet.gain.value = 0.45;
+    mVerb.connect(mConv); mConv.connect(mWet); mWet.connect(musicOut);
 
     noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
     const nd = noiseBuf.getChannelData(0);
@@ -51,6 +60,7 @@
     if (c.state === 'suspended') c.resume().catch(() => {});
     const b = c.createBuffer(1, 1, 22050), s = c.createBufferSource();
     s.buffer = b; s.connect(c.destination); s.start(0);
+    if (SFX.music && !document.hidden) Music.start();
   }
   ['pointerdown', 'touchend', 'keydown'].forEach((ev) => document.addEventListener(ev, unlock, { passive: true }));
 
@@ -64,7 +74,7 @@
     if (ctx.createStereoPanner) { const p = ctx.createStereoPanner(); p.pan.value = pan; n.connect(p); n = p; }
     const dry = ctx.createGain(); dry.gain.value = 1 - wet * 0.5;
     const send = ctx.createGain(); send.gain.value = wet;
-    n.connect(dry); dry.connect(bus); n.connect(send); send.connect(verb);
+    n.connect(dry); dry.connect(target === 'music' ? mBus : bus); n.connect(send); send.connect(target === 'music' ? mVerb : verb);
   }
   function env(g, t, a, peak, dur) {
     g.gain.setValueAtTime(0.0001, t);
@@ -200,14 +210,99 @@
     }
   };
 
+  /* =======================================================
+     MUSIQUE D'AMBIANCE — générée en continu, jamais identique
+     Nappe sombre et calme (la mineur), basse douce,
+     notes de cloche éparses tirées des accords.
+     ======================================================= */
+  const PROG = [
+    { root: 45, notes: [57, 60, 64, 67, 71] },  // Am9
+    { root: 41, notes: [53, 57, 60, 64, 67] },  // Fmaj9
+    { root: 48, notes: [55, 59, 60, 64, 67] },  // Cmaj7
+    { root: 40, notes: [52, 55, 59, 62, 66] }   // Em9
+  ];
+  const CHORD = 9; // secondes par accord
+  const Music = {
+    timer: null, next: 0, idx: 0, playing: false,
+    start() {
+      if (this.playing || !init()) return;
+      if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+      this.playing = true;
+      this.next = ctx.currentTime + 0.1;
+      musicOut.gain.cancelScheduledValues(ctx.currentTime);
+      musicOut.gain.setValueAtTime(Math.max(musicOut.gain.value, 0.0001), ctx.currentTime);
+      musicOut.gain.exponentialRampToValueAtTime(Math.max(0.0001, SFX.musicVolume * 0.9), ctx.currentTime + 4);
+      this.tick();
+      this.timer = setInterval(() => this.tick(), 500);
+    },
+    stop() {
+      if (!this.playing) return;
+      this.playing = false;
+      clearInterval(this.timer); this.timer = null;
+      if (ctx) {
+        musicOut.gain.cancelScheduledValues(ctx.currentTime);
+        musicOut.gain.setValueAtTime(Math.max(musicOut.gain.value, 0.0001), ctx.currentTime);
+        musicOut.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 1.2);
+      }
+    },
+    // planifie les accords un peu à l'avance
+    tick() {
+      while (this.playing && this.next < ctx.currentTime + 2) {
+        this.chord(PROG[this.idx % PROG.length], this.next - ctx.currentTime);
+        this.idx++; this.next += CHORD;
+      }
+    },
+    chord(c, t) {
+      target = 'music';
+      try {
+        pad(c.notes.map(N), t, { vol: 0.03, dur: CHORD + 3, attack: 3, cutoff: 950, wet: 0.5 });
+        pad([N(c.root)], t, { vol: 0.045, dur: CHORD + 1.5, attack: 2.5, cutoff: 300, wet: 0.2, type: 'sine' });
+        const n = 2 + Math.floor(Math.random() * 3);
+        for (let i = 0; i < n; i++) {
+          const note = c.notes[Math.floor(Math.random() * c.notes.length)] + (Math.random() < 0.6 ? 12 : 24);
+          bell(N(note), t + 1 + Math.random() * (CHORD - 2), { vol: 0.018 + Math.random() * 0.014, dur: 3.5, ratio: 3.5, index: 0.5, pan: Math.random() * 1.2 - 0.6, wet: 0.6, attack: 0.02 });
+        }
+        if (Math.random() < 0.35) swoosh(t + Math.random() * 4, 5, 300, 1400, { vol: 0.008, q: 0.6, wet: 0.7 });
+      } finally { target = 'sfx'; }
+    },
+    // baisse la musique pendant les grands effets (boss, rang…)
+    duck(seconds) {
+      if (!this.playing || !ctx) return;
+      const now = ctx.currentTime, v = Math.max(0.0001, SFX.musicVolume * 0.9);
+      musicOut.gain.cancelScheduledValues(now);
+      musicOut.gain.setValueAtTime(Math.max(musicOut.gain.value, 0.0001), now);
+      musicOut.gain.exponentialRampToValueAtTime(Math.max(0.0001, v * 0.25), now + 0.3);
+      musicOut.gain.setValueAtTime(Math.max(0.0001, v * 0.25), now + seconds);
+      musicOut.gain.exponentialRampToValueAtTime(v, now + seconds + 2);
+    }
+  };
+  // musique uniquement quand l'app est à l'écran
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) Music.stop();
+    else if (SFX.music && ctx) Music.start();
+  });
+
+  SFX.setMusic = function (on, vol) {
+    SFX.music = !!on;
+    if (typeof vol === 'number') SFX.musicVolume = vol;
+    if (!SFX.music) { Music.stop(); return; }
+    if (ctx && ctx.state === 'running') {
+      if (!Music.playing) Music.start();
+      else { musicOut.gain.cancelScheduledValues(ctx.currentTime); musicOut.gain.setTargetAtTime(Math.max(0.0001, SFX.musicVolume * 0.9), ctx.currentTime, 0.2); }
+    }
+  };
+  const DUCK = { boss: 3.5, rankup: 4, victory: 3.5, levelup: 2.5, warn: 2.5, down: 2.5 };
+
   SFX.play = function (name) {
     if (!SFX.enabled || !SOUNDS[name]) return;
     try {
       if (!init()) return;
       if (ctx.state === 'suspended') ctx.resume().catch(() => {});
       applyVolume();
+      if (DUCK[name]) Music.duck(DUCK[name]);
       SOUNDS[name]();
     } catch (e) { /* le son ne doit jamais bloquer l'application */ }
   };
+  SFX.Music = Music;
   window.SFX = SFX;
 })();

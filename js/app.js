@@ -11,7 +11,7 @@
   const REGEN_COOLDOWN = 7; // jours entre deux régénérations complètes
   const QUESTIONS = window.QUESTIONS;
   const KEY = 'leveling.system.v1';
-  const APP_VERSION = '11';
+  const APP_VERSION = '12';
   const DKEYS = ['sport', 'finance', 'relation'];
   const RANKS = ['E', 'D', 'C', 'B', 'A', 'S'];
   const PENALTY_RATE = 0.6;      // % de l'XP de la quête perdu si non faite
@@ -64,7 +64,7 @@
     domains: { sport: { level: 0, xp: 0, base: 0 }, finance: { level: 0, xp: 0, base: 0 }, relation: { level: 0, xp: 0, base: 0 } },
     quests: [], penalties: [], log: [],
     streak: 0, lastFullDay: '', bonus: null, totalXp: 0,
-    settings: { pause: false, sound: true, volume: 0.7 },
+    settings: { pause: false, sound: true, volume: 0.7, music: true, musicVolume: 0.5 },
     changes: { day: '', add: 0, rem: 0, removedDone: [] },
     setupDay: '', lastRegen: '', persona: '',
     bosses: { sport: [], finance: [], relation: [] }
@@ -620,6 +620,11 @@
         <div class="row2"><button class="btn ${state.settings.sound ? '' : 'ghost'}" data-act="sound">${state.settings.sound ? '🔊 Son activé' : '🔇 Son coupé'}</button><button class="btn ghost" data-act="sound-test">Tester</button></div>
         <label class="vol">Volume <input type="range" id="vol" min="0" max="1" step="0.05" value="${state.settings.volume ?? 0.7}"></label>
       </section>
+      <section class="window"><div class="sys-head">MUSIQUE D'AMBIANCE</div>
+        <p class="muted">Ambiance calme générée en continu, jamais identique. Elle s'arrête quand tu quittes l'app et baisse pendant les grands moments (boss, rang).</p>
+        <button class="btn ${state.settings.music !== false ? '' : 'ghost'}" data-act="music">${state.settings.music !== false ? '♫ Musique activée' : '🔇 Musique coupée'}</button>
+        <label class="vol">Volume <input type="range" id="mvol" min="0" max="1" step="0.05" value="${state.settings.musicVolume ?? 0.5}"></label>
+      </section>
       <section class="window"><div class="sys-head">MODE REPOS</div>
         <p class="muted">Vacances, maladie, blessure : active le mode repos pour suspendre toutes les pénalités. Les quêtes continuent de se réinitialiser.</p>
         <button class="btn ${state.settings.pause ? 'red' : ''}" data-act="pause">${state.settings.pause ? 'Désactiver le mode repos' : 'Activer le mode repos'}</button>
@@ -912,6 +917,8 @@
         state.settings.sound = !state.settings.sound; applySound();
         if (state.settings.sound) window.SFX.play('quest');
         save(); render(); break;
+      case 'music':
+        state.settings.music = state.settings.music === false; applySound(); save(); render(); break;
       case 'sound-test': {
         const seq = ['open', 'quest', 'levelup', 'rankup', 'boss'];
         seq.forEach((n, i) => setTimeout(() => window.SFX.play(n), i * 2200));
@@ -987,9 +994,11 @@
   function applySound() {
     window.SFX.enabled = state.settings.sound !== false;
     window.SFX.volume = typeof state.settings.volume === 'number' ? state.settings.volume : 0.7;
+    window.SFX.setMusic(state.settings.music !== false, typeof state.settings.musicVolume === 'number' ? state.settings.musicVolume : 0.5);
   }
   document.addEventListener('change', (e) => {
     if (e.target.id === 'vol') { state.settings.volume = +e.target.value; applySound(); window.SFX.play('quest'); save(); }
+    if (e.target.id === 'mvol') { state.settings.musicVolume = +e.target.value; applySound(); save(); }
   });
 
   /* ---------------- démarrage ---------------- */
