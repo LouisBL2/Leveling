@@ -325,7 +325,8 @@ body.onboarding #app { padding-bottom: 24px; }
 .hy-title { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; text-shadow: none; filter: drop-shadow(0 0 8px rgba(255, 255, 255, .25)); }
 .hy-badges { display: flex; justify-content: center; gap: 6px; margin: 8px 0 2px; flex-wrap: wrap; }
 .hy-badges span { font: 700 11px var(--mono); letter-spacing: .1em; padding: 3px 9px; color: var(--c); border: 1px solid var(--c); box-shadow: 0 0 8px color-mix(in srgb, var(--c) 50%, transparent); }
-.avatar.hybrid { filter: drop-shadow(0 0 6px rgba(255, 211, 77, .35)); }
+/* Pas de filter CSS sur le SVG : Safari (WebKit) décale alors le rendu des SVG animés. */
+.avatar.hybrid { overflow: hidden; }
 .boss-svg { display: block; width: 100%; height: auto; overflow: visible; }
 
 /* ---------- galerie des statuts ---------- */
