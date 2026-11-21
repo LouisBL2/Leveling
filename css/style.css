@@ -201,7 +201,7 @@ select option { background: #07122a; }
 /* ---------- navigation ---------- */
 .nav {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
-  display: grid; grid-template-columns: repeat(6, 1fr);
+  display: grid; grid-template-columns: repeat(5, 1fr);
   max-width: 560px; margin: 0 auto;
   padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
   background: rgba(4, 8, 18, 0.92); border-top: 1px solid rgba(73, 198, 255, 0.4);
@@ -408,3 +408,4 @@ body.onboarding #app { padding-bottom: 24px; }
 .ach-t { font-weight: 800; font-size: 12.5px; }
 .ach-d { font-size: 11px; color: var(--muted); line-height: 1.3; }
 .ach-date { font-size: 10px; color: #ffd34d; font-family: var(--mono); margin-top: 2px; }
+.td-sub { font-size: 11px; color: var(--muted); text-align: center; margin-top: 2px; }

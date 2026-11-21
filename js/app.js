@@ -15,7 +15,7 @@
   const REGEN_COOLDOWN = 7; // jours entre deux régénérations complètes
   const QUESTIONS = window.QUESTIONS;
   const KEY = 'leveling.system.v1';
-  const APP_VERSION = '13';
+  const APP_VERSION = '14';
   const DKEYS = ['sport', 'finance', 'relation'];
   const RANKS = ['E', 'D', 'C', 'B', 'A', 'S'];
   const PENALTY_RATE = 0.6;      // % de l'XP de la quête perdu si non faite
@@ -514,14 +514,14 @@
   function render() {
     if (!state.calibrated || state.onboarding.step !== 'done') return renderOnboarding();
     document.body.classList.remove('onboarding');
-    const tabs = { status: renderStatus, today: renderToday, quests: renderQuests, catalog: renderCatalog, journal: renderJournal, settings: renderSettings };
+    const tabs = { status: renderStatus, quests: renderQuests, catalog: renderCatalog, journal: renderJournal, settings: renderSettings };
     app().innerHTML = `<main class="screen">${(tabs[ui.tab] || renderStatus)()}</main>${renderNav()}`;
   }
 
   function renderNav() {
-    const items = [['status', '◈', 'Statut'], ['today', '☀', 'Jour'], ['quests', '!', 'Quêtes'], ['catalog', '✚', 'Catalogue'], ['journal', '▲', 'Progrès'], ['settings', '⚙', 'Système']];
+    const items = [['status', '◈', 'Statut'], ['quests', '!', 'Quêtes'], ['catalog', '✚', 'Catalogue'], ['journal', '▲', 'Progrès'], ['settings', '⚙', 'Système']];
     const badge = state.penalties.length ? '<i class="dot"></i>' : '';
-    return `<nav class="nav">${items.map(([k, ic, l]) => `<button data-act="tab" data-v="${k}" class="${ui.tab === k ? 'on' : ''}"><span class="ic">${ic}</span>${l}${k === 'quests' || k === 'today' ? badge : ''}</button>`).join('')}</nav>`;
+    return `<nav class="nav">${items.map(([k, ic, l]) => `<button data-act="tab" data-v="${k}" class="${ui.tab === k ? 'on' : ''}"><span class="ic">${ic}</span>${l}${k === 'quests' ? badge : ''}</button>`).join('')}</nav>`;
   }
 
   function bar(v, max, color) {
@@ -692,9 +692,7 @@
         ${list.length ? list.map(questCard).join('') : '<p class="muted center">Aucune quête. Ajoute-en depuis le catalogue.</p>'}
       </section>`;
     }).join('');
-    const dl = state.quests.filter((q) => q.p === 'daily'), dd = dl.filter((q) => q.done).length, need3 = Math.ceil(dl.length * 2 / 3);
-    const warn = dl.length ? `<p class="warn">${dd >= need3 ? '✔' : '⚠'} Quêtes du jour validées : <b>${dd}/${dl.length}</b> — minimum ${need3} pour éviter la Zone de pénalité. Chaque quête manquée coûte de l'XP.</p>` : '';
-    return `${pens}${challengeCard()}<div class="chips">${chips}</div>${warn}${sections}`;
+    return `${pens}${todayHeader()}${challengeCard()}<div class="chips">${chips}</div>${sections}`;
   }
 
   function renderCatalog() {
@@ -745,37 +743,26 @@
       ${groups}`;
   }
 
-  /* ---------------- écran « Ma journée » ---------------- */
-  function renderToday() {
+  /* ---------------- en-tête « Ma journée » (haut de l'onglet Quêtes) ---------------- */
+  function todayHeader() {
     const now = new Date(), reset = nextReset('daily');
     const dl = state.quests.filter((q) => q.p === 'daily'), dd = dl.filter((q) => q.done).length;
     const need3 = Math.ceil(dl.length * 2 / 3), safe = dd >= need3;
     const pct = dl.length ? (dd / dl.length) * 100 : 0, mark = dl.length ? (need3 / dl.length) * 100 : 0;
     const dayName = now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
-    const pens = state.penalties.map((p) => `<button class="window danger alert" data-act="tab" data-v="quests">⚠ Pénalité en cours : ${esc(p.t)} · <b class="cd" data-until="${p.deadline}">${fmtLeft(p.deadline - now)}</b></button>`).join('');
-    const running = state.quests.filter((q) => q.p !== 'daily' && q.tgt && !q.done);
-    // gardien le plus proche, toutes stats confondues
-    const near = DKEYS.map((d) => ({ d, b: nextBoss(d) })).filter((x) => x.b).sort((a, b) => (a.b.lvl - state.domains[a.d].level) - (b.b.lvl - state.domains[b.d].level))[0];
-    return `
-      ${pens}
-      <section class="window today-head">
+    return `<section class="window today-head">
         <div class="sys-head">MA JOURNÉE</div>
         <div class="td-date">${esc(dayName)}</div>
         <div class="td-grid">
           <div><div class="lbl">FIN DE JOURNÉE</div><div class="val"><b class="cd" data-until="${reset.getTime()}">${fmtLeft(reset - now)}</b></div></div>
           <div><div class="lbl">SÉRIE</div><div class="val">${state.streak} j 🔥</div></div>
         </div>
-        <div class="td-prog ${safe ? 'safe' : ''}">
+        ${dl.length ? `<div class="td-prog ${safe ? 'safe' : ''}">
           <div class="td-bar"><i style="width:${pct}%"></i><span class="td-mark" style="left:${mark}%" title="Seuil 2/3"></span></div>
-          <div class="td-txt">${safe ? '✔ Seuil atteint' : `⚠ Encore ${need3 - dd} quête(s) pour éviter la pénalité`} · <b>${dd}/${dl.length}</b></div>
-        </div>
-      </section>
-      ${challengeCard()}
-      <section class="window"><div class="sys-head">QUÊTES DU JOUR</div>
-        ${dl.length ? dl.map(questCard).join('') : '<p class="muted center">Aucune quête quotidienne. Ajoute-en depuis le catalogue.</p>'}
-      </section>
-      ${running.length ? `<section class="window"><div class="sys-head">OBJECTIFS EN COURS</div>${running.map(questCard).join('')}</section>` : ''}
-      ${near ? `<section class="window"><div class="sys-head">PROCHAIN GARDIEN</div>${bossRow(near.d)}</section>` : ''}`;
+          <div class="td-txt">${safe ? '✔ Seuil des 2/3 atteint' : `⚠ Encore ${need3 - dd} quête(s) pour éviter la Zone de pénalité`} · <b>${dd}/${dl.length}</b></div>
+          <div class="td-sub">Chaque quête manquée coûte de l'XP.</div>
+        </div>` : ''}
+      </section>`;
   }
 
   /* ---------------- graphique de progression (1 axe, 3 séries, survol) ---------------- */
