@@ -83,7 +83,7 @@
 
     // aura : une flamme par domaine, décalées pour se mélanger
     const spikes = 8 + r * 3;
-    const auras = cols.map((col, i) => `<polygon points="${auraPoints(spikes, 62, 70 + r * 7 + (hybrid ? 6 : 0), r, i * Math.PI / (spikes * cols.length))}" fill="${col}" opacity="${hybrid ? 0.32 : 0.12 + r * 0.07}" filter="url(#${id}blur)" class="av-aura" style="animation-delay:${i * 0.8}s"/>`).join('');
+    const auras = cols.map((col, i) => `<polygon points="${auraPoints(spikes, 62, 70 + r * 7 + (hybrid ? 6 : 0), r, i * Math.PI / (spikes * cols.length))}" fill="${col}" opacity="${hybrid ? 0.42 / cols.length : 0.12 + r * 0.07}" filter="url(#${id}blur)" class="av-aura" style="animation-delay:${i * 0.8}s"/>`).join('');
 
     // particules
     let parts = '';
@@ -103,12 +103,14 @@
     if (r >= 2) {
       if (has('sport')) { const col = colOf('sport'); gear += `<g filter="url(#${id}g)"><path d="M150 40 L158 44 L120 160 L114 157 Z" fill="${col}" opacity=".9"/><path d="M108 150 L128 160 M112 168 L122 152" stroke="${col}" stroke-width="5" stroke-linecap="round"/></g>`; }
       if (has('finance')) {
-        const pos = !hybrid ? [[52, 70], [150, 78], [42, 120], [160, 128]].slice(0, r) : [[52, 70], [40, 118], [58, 30]];
+        const pos = !hybrid ? [[52, 70], [150, 78], [42, 120], [160, 128]].slice(0, r)
+          : has('relation') && has('sport') ? [[50, 72], [38, 114]]
+          : has('sport') ? [[52, 70], [40, 114], [40, 158]] : [[52, 72], [40, 116], [44, 160]];
         gear += pos.map(([x, y], i) => coin(x, y, i, colOf('finance'))).join('');
       }
       if (has('relation')) {
         let pos = [[50, 76], [152, 70], [158, 126], [44, 128]].slice(0, r);
-        if (hybrid) pos = has('sport') && has('finance') ? [[26, 160], [174, 160], [142, 28]] : has('sport') ? [[50, 76], [44, 128], [58, 32]] : [[152, 70], [158, 126], [142, 30]];
+        if (hybrid) pos = has('sport') && has('finance') ? [[40, 158], [172, 104], [166, 150]] : has('sport') ? [[50, 76], [40, 118], [42, 160]] : [[150, 74], [162, 118], [158, 160]];
         gear += pos.map(([x, y], i) => heart(x, y, i, colOf('relation'))).join('');
       }
     }
@@ -133,7 +135,7 @@
 
     // emblèmes côte à côte
     const s = 0.8 + r * 0.1;
-    const embs = doms.map((d, i) => `<g transform="translate(${100 + (i - (doms.length - 1) / 2) * 24} 164) scale(${hybrid ? 0.95 : s})" fill="${cols[i]}" filter="url(#${id}g)">${EMB[d]}</g>`).join('');
+    const embs = doms.map((d, i) => `<g transform="translate(${100 + (i - (doms.length - 1) / 2) * 22} ${hybrid ? 190 : 164}) scale(${hybrid ? 0.9 : s})" fill="${cols[i]}" filter="url(#${id}g)">${EMB[d]}</g>`).join('');
 
     // yeux : vairons en hybride, 3e œil au front pour les 3 stats
     const eyeOp = 0.45 + r * 0.11;
@@ -142,7 +144,7 @@
     const trail = r >= 4 ? `<path d="M110 88 Q 124 84 136 74" stroke="${eyeR}" stroke-width="2" fill="none" opacity=".7" filter="url(#${id}g)"/>` + (hybrid ? `<path d="M90 88 Q 76 84 64 74" stroke="${c}" stroke-width="2" fill="none" opacity=".7" filter="url(#${id}g)"/>` : '') : '';
 
     const mixDef = hybrid ? `<linearGradient id="${id}mix" x1="0" y1="0" x2="1" y2="1">${cols.map((col, i) => `<stop offset="${i / (cols.length - 1)}" stop-color="${col}"/>`).join('')}</linearGradient>` : '';
-    const bgs = cols.map((col, i) => `<radialGradient id="${id}bg${i}" cx="${hybrid ? 30 + i * (40 / (cols.length - 1)) : 50}%" cy="45%" r="60%"><stop offset="0" stop-color="${col}" stop-opacity="${hybrid ? 0.3 : 0.18 + r * 0.06}"/><stop offset="1" stop-color="#04060c" stop-opacity="0"/></radialGradient>`).join('');
+    const bgs = cols.map((col, i) => `<radialGradient id="${id}bg${i}" cx="${hybrid ? 30 + i * (40 / (cols.length - 1)) : 50}%" cy="45%" r="60%"><stop offset="0" stop-color="${col}" stop-opacity="${hybrid ? 0.2 : 0.18 + r * 0.06}"/><stop offset="1" stop-color="#04060c" stop-opacity="0"/></radialGradient>`).join('');
 
     return `<svg class="avatar${hybrid ? ' hybrid' : ''}" viewBox="0 0 200 220" role="img" aria-label="Avatar">
       <defs>${bgs}${mixDef}
