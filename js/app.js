@@ -15,7 +15,7 @@
   const REGEN_COOLDOWN = 7; // jours entre deux régénérations complètes
   const QUESTIONS = window.QUESTIONS;
   const KEY = 'leveling.system.v1';
-  const APP_VERSION = '17';
+  const APP_VERSION = '18';
   const DKEYS = ['sport', 'finance', 'relation'];
   const RANKS = ['E', 'D', 'C', 'B', 'A', 'S'];
   const PENALTY_RATE = 0.6;      // % de l'XP de la quête perdu si non faite
@@ -419,23 +419,32 @@
       missed.forEach((x) => log('fail', `Quête manquée : « ${x.t} »${x.m > 1 ? ' ×' + x.m : ''} (−${x.amt} XP ${DOMAINS[x.d].label})`));
     }
     // Quête de pénalité : si moins de 2/3 des quêtes du jour ont été validées.
-    if (belowThird) {
+    const newPens = [];
+    const drawPenalty = (stake, reason) => {
       const k = tier(avgLevel());
       const pool = PENALTIES.filter((x) => (x.min || 0) <= k); // certaines pénalités n'existent qu'à partir d'un rang
       const pick = pool[Math.floor(Math.random() * pool.length)];
-      const stake = total > 0 ? loss : { sport: 30, finance: 30, relation: 30 };
       state.lastPenaltyDay = dk(now);
-      pen = { id: uid(), t: pick.t(k), desc: pick.desc, created: now.getTime(), deadline: now.getTime() + PENALTY_DELAY, loss: stake,
-        reason: `${dayDone}/${closedDaily.length} quêtes du jour validées (minimum : ${Math.ceil(closedDaily.length * 2 / 3)})` };
-      state.penalties.push(pen);
+      const p = { id: uid(), t: pick.t(k), desc: pick.desc, created: now.getTime(), deadline: now.getTime() + PENALTY_DELAY, loss: stake, reason };
+      state.penalties.push(p); newPens.push(p);
+      return p;
+    };
+    if (belowThird) {
+      pen = drawPenalty(total > 0 ? loss : { sport: 30, finance: 30, relation: 30 },
+        `${dayDone}/${closedDaily.length} quêtes du jour validées (minimum : ${Math.ceil(closedDaily.length * 2 / 3)})`);
       log('pen', `Moins de 2/3 des quêtes validées (${dayDone}/${closedDaily.length}) → Zone de pénalité : « ${pen.t} »`);
     }
+    // Boss non vaincu dans les 30 jours : perte d'XP + quête de pénalité
     const failedBosses = [];
     checkBossTimers(now.getTime(), failedBosses);
+    failedBosses.forEach((x) => {
+      const p = drawPenalty({ [x.d]: x.loss }, `${x.b.name} non vaincu en ${BOSS_DAYS.big} jours (${DOMAINS[x.d].label} niv. ${x.b.lvl})`);
+      log('pen', `Délai du gardien expiré → Zone de pénalité : « ${p.t} »`);
+    });
     ensureChallenge();
     checkPersona();
     save();
-    if (missed.length || pen || failed.length || failedBosses.length) showPenaltyAlert(missed, pen, failed, failedBosses);
+    if (missed.length || newPens.length || failed.length || failedBosses.length) showPenaltyAlert(missed, newPens, failed, failedBosses);
   }
 
   // Zone de pénalité bloquante : tant qu'une pénalité est en cours, aucune quête ne peut être validée.
@@ -658,7 +667,7 @@
         <div class="boss-task">${esc(b.task)}</div>
         <div class="boss-meta">${ready ? `<b class="red-t">⚠ Bloque ta progression</b>` : `Apparaît dans ${left} niveau${left > 1 ? 'x' : ''}`} · Récompense +${bossReward(b)} XP</div>
         ${ready ? `<div class="boss-meta">⏸ Quêtes ${DOMAINS[d].label} facultatives tant qu'il n'est pas vaincu</div>` : ''}
-        ${ready && state.bossTimers[d] ? `<div class="boss-meta">⏳ Délai : <b class="cd red-t" data-until="${state.bossTimers[d].deadline}">${fmtLeft(state.bossTimers[d].deadline - Date.now())}</b> · sinon −${Math.round(need(b.lvl) * (b.big ? BOSS_FAIL_RATE.big : BOSS_FAIL_RATE.mini))} XP</div>` : ''}
+        ${ready && state.bossTimers[d] ? `<div class="boss-meta">⏳ Délai : <b class="cd red-t" data-until="${state.bossTimers[d].deadline}">${fmtLeft(state.bossTimers[d].deadline - Date.now())}</b> · sinon −${Math.round(need(b.lvl) * (b.big ? BOSS_FAIL_RATE.big : BOSS_FAIL_RATE.mini))} XP et Zone de pénalité</div>` : ''}
       </div>
       ${ready ? `<button class="btn sm red" data-act="boss" data-d="${d}" data-l="${b.lvl}">Affronter</button>` : ''}
     </div>`;
@@ -1075,17 +1084,18 @@
       modal(`<div class="sys-head red">NIVEAU PERDU</div><p class="center big">${M.label} : ${o.from} → <b class="red-t">${o.to}</b></p><p class="center muted">Le Système ne tolère pas la faiblesse.</p>`, [{ label: 'Compris', primary: true, red: true }], 'danger', 'down');
     }
   }
-  function showPenaltyAlert(missed, pen, failed, failedBosses = []) {
+  function showPenaltyAlert(missed, pens, failed, failedBosses = []) {
     const list = missed.map((x) => `<li><span style="color:${DOMAINS[x.d].color}">${DOMAINS[x.d].icon}</span> ${esc(x.t)}${x.m > 1 ? ' ×' + x.m : ''} <b class="red-t">−${x.amt} XP</b></li>`).join('');
     const fl = failed.map((p) => `<li>Pénalité non accomplie : « ${esc(p.t)} » <b class="red-t">−${DKEYS.reduce((s, d) => s + (p.loss[d] || 0), 0)} XP</b></li>`).join('')
       + failedBosses.map((x) => `<li>${DOMAINS[x.d].icon} Délai expiré : ${esc(x.b.name)} n'a pas été vaincu <b class="red-t">−${x.loss} XP</b></li>`).join('');
     modal(`<div class="sys-head red">AVERTISSEMENT</div>
       ${missed.length ? '<p class="center">Des quêtes n\'ont pas été accomplies dans le temps imparti.</p>' : ''}
       <ul class="pen-list">${list}${fl}</ul>
-      ${missed.length && !pen ? '<p class="center muted tiny">Tu as validé au moins 2/3 des quêtes du jour : pas de quête de pénalité, seulement la perte d\'XP.</p>' : ''}
-      ${pen ? `<p class="center">${esc(pen.reason)}.<br>Tu es transféré dans la <b class="red-t">ZONE DE PÉNALITÉ</b>.</p>
-      <div class="pen-title">${esc(pen.t)}</div><p class="center muted">Délai : 24 h. Réussite : 50 % de l'XP perdue récupérée. Échec : la perte est appliquée une seconde fois.</p>
-      <p class="center tiny lock-note">🔒 Tant que la pénalité n'est pas accomplie, tu ne peux valider aucune quête.</p>` : ''}`,
+      ${missed.length && !pens.some((p) => /quêtes du jour/.test(p.reason)) ? '<p class="center muted tiny">Tu as validé au moins 2/3 des quêtes du jour : pas de quête de pénalité pour les quêtes, seulement la perte d\'XP.</p>' : ''}
+      ${pens.length ? `<p class="center">Tu es transféré dans la <b class="red-t">ZONE DE PÉNALITÉ</b>.</p>
+      ${pens.map((p) => `<p class="center tiny" style="color:#ffb3c0">Motif : ${esc(p.reason)}</p><div class="pen-title">${esc(p.t)}</div>`).join('')}
+      <p class="center muted">Délai : 24 h. Réussite : 50 % de l'XP perdue récupérée. Échec : la perte est appliquée une seconde fois.</p>
+      <p class="center tiny lock-note">🔒 Tant que ${pens.length > 1 ? 'les pénalités ne sont pas accomplies' : 'la pénalité n\'est pas accomplie'}, tu ne peux valider aucune quête.</p>` : ''}`,
     [{ label: 'Accepter', primary: true, red: true }], 'danger', 'warn');
   }
 
