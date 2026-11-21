@@ -15,7 +15,7 @@
   const REGEN_COOLDOWN = 7; // jours entre deux régénérations complètes
   const QUESTIONS = window.QUESTIONS;
   const KEY = 'leveling.system.v1';
-  const APP_VERSION = '19';
+  const APP_VERSION = '20';
   const DKEYS = ['sport', 'finance', 'relation'];
   const RANKS = ['E', 'D', 'C', 'B', 'A', 'S'];
   const PENALTY_RATE = 0.6;      // % de l'XP de la quête perdu si non faite
@@ -328,6 +328,45 @@
       if (state.domains[d].level >= t.L) t.deadline = now + (b.big ? BOSS_DAYS.big : BOSS_DAYS.mini) * 864e5; // nouveau délai
       else delete state.bossTimers[d];
     });
+  }
+
+  /* ---------------- remplacement d'une quête ---------------- */
+  function showReplace(qid) {
+    const old = state.quests.find((q) => q.id === qid); if (!old) return;
+    const active = new Set(state.quests.map((q) => q.cid).filter(Boolean));
+    const order = [old.d, ...DKEYS.filter((d) => d !== old.d)];
+    const groups = order.map((d) => {
+      const lvl = state.domains[d].level, M = DOMAINS[d];
+      const list = CATALOG.filter((c) => c.d === d && c.p === old.p && !active.has(c.cid))
+        .map((c) => ({ c, rec: lvl >= c.lv[0] && lvl <= c.lv[1] }))
+        .sort((a, b) => (b.rec - a.rec) || (b.c.lv[0] - a.c.lv[0]));
+      if (!list.length) return '';
+      return `<div class="gal-sec" style="color:${M.color}">${M.icon} ${M.label.toUpperCase()}${d === old.d ? ' · même stat' : ''}</div>
+        ${list.map(({ c, rec }) => `<button class="repl-opt" data-act="repl-pick" data-q="${old.id}" data-cid="${c.cid}" style="--c:${M.color}">
+          <span class="q-rank r-${c.r}">${c.r}</span>
+          <span class="repl-body"><span class="q-title">${esc(c.t)}</span>
+          <span class="q-meta">+${questXP(c.r, c.p)} XP${c.tgt ? ` · ◎ ${fmtN(c.tgt.n)} ${esc(c.tgt.unit)}` : ''}${rec ? ' · <span class="rec">recommandée</span>' : ''}</span></span>
+        </button>`).join('')}`;
+    }).join('');
+    modal(`<div class="sys-head">REMPLACER</div>
+      <p class="center">Remplacer « <b>${esc(old.t)}</b> » par une autre quête <b>${PERIOD[old.p].label.toLowerCase()}</b> :</p>
+      <p class="center muted tiny">${freeSetup() ? 'Journée de réglage : changements illimités aujourd\'hui.' : 'Ce remplacement utilise ton changement de quête du jour.'}</p>
+      <div class="repl-list">${groups || '<p class="muted center">Aucune autre quête disponible pour cette périodicité.</p>'}</div>`,
+    [{ label: 'Annuler' }], 'replace');
+  }
+  function replaceQuest(qid, cid) {
+    const old = state.quests.find((q) => q.id === qid), src = CATALOG.find((c) => c.cid === cid);
+    if (!old || !src) return;
+    if (!canRem() || !canAdd()) { lockedMsg('rem'); return; }
+    const wasDone = old.done, idx = state.quests.indexOf(old);
+    removeQuest(old);
+    addQuest(src);
+    const nq = state.quests.pop();
+    if (wasDone) nq.done = true;                 // déjà validée sur ce cycle : pas de double XP
+    state.quests.splice(Math.min(idx, state.quests.length), 0, nq); // garde la position dans la liste
+    log('info', `Quête remplacée : « ${old.t} » → « ${nq.t} »`);
+    toast('Quête remplacée', 'good');
+    save(); render();
   }
 
   /* ---------------- quêtes ---------------- */
@@ -749,7 +788,7 @@
           <div class="q-rank r-${c.r}">${c.r}</div>
           <div class="q-body"><div class="q-title">${esc(c.t)}</div>
             <div class="q-meta">${PERIOD[c.p].label} · +${questXP(c.r, c.p)} XP${c.tgt ? ` · ◎ objectif ${fmtN(c.tgt.n)} ${esc(c.tgt.unit)}` : ''} ${rec ? '· <span class="rec">recommandée</span>' : ''}</div></div>
-          <button class="btn sm ${on ? 'ghost' : ''}" data-act="cat" data-id="${c.cid}" ${(on ? canRem() : canAdd()) ? '' : 'disabled'}>${on ? 'Retirer' : 'Ajouter'}</button>
+          <button class="btn sm ${on ? 'ghost' : ''}" data-act="cat" data-id="${c.cid}" ${(on ? canRem() && canAdd() : canAdd()) ? '' : 'disabled'}>${on ? '⇄ Remplacer' : 'Ajouter'}</button>
         </div>`;
       }).join('');
       return `<section class="window" style="--c:${DOMAINS[d].color}"><div class="sys-head" style="color:${DOMAINS[d].color}">${DOMAINS[d].icon} ${DOMAINS[d].label.toUpperCase()} · NIV. ${lvl}</div>${rows}</section>`;
@@ -759,7 +798,7 @@
     const tomorrow = nextReset('daily').getTime();
     const lockInfo = freeSetup()
       ? '<div class="window note">🛠 Journée de réglage : changements de quêtes illimités aujourd\'hui. À partir de demain : 1 changement par jour.</div>'
-      : `<div class="window note ${canAdd() || canRem() ? '' : 'locked'}">🔒 1 changement de quête par jour · Ajout ${c.add}/1 · Retrait ${c.rem}/1${canAdd() || canRem() ? '' : ` · Déblocage dans <b class="cd" data-until="${tomorrow}">${fmtLeft(tomorrow - Date.now())}</b>`}</div>`;
+      : `<div class="window note ${canAdd() || canRem() ? '' : 'locked'}">🔒 1 changement de quête par jour (1 ajout ou 1 remplacement) · Ajout ${c.add}/1 · Retrait ${c.rem}/1${canAdd() || canRem() ? '' : ` · Déblocage dans <b class="cd" data-until="${tomorrow}">${fmtLeft(tomorrow - Date.now())}</b>`}</div>`;
     return `
       ${lockInfo}
       <section class="window">
@@ -1227,16 +1266,21 @@
         const cid = el.dataset.id;
         const existing = state.quests.find((q) => q.cid === cid);
         if (existing) {
-          if (!canRem()) { lockedMsg('rem'); break; }
-          const ok = await modal(`<div class="sys-head">RETIRER</div><p class="center">Retirer « ${esc(existing.t)} » ?</p><p class="center muted tiny">${freeSetup() ? 'Journée de réglage : changements illimités aujourd\'hui.' : 'Tu ne pourras plus retirer de quête avant demain.'}</p>`, [{ label: 'Retirer', primary: true }, { label: 'Annuler' }]);
-          if (ok !== 0) break;
-          removeQuest(existing);
+          if (!canRem() || !canAdd()) { lockedMsg('rem'); break; }
+          showReplace(existing.id);
+          break;
         } else {
           if (!canAdd()) { lockedMsg('add'); break; }
           addQuest(CATALOG.find((c) => c.cid === cid));
           toast('Quête ajoutée', 'good');
         }
         save(); render(); break;
+      }
+      case 'repl-pick': {
+        const m = document.querySelector('.modal'); if (m) m.remove();
+        replaceQuest(el.dataset.q, el.dataset.cid);
+        flushOverlays();
+        break;
       }
       case 'del': {
         const q = state.quests.find((x) => x.id === el.dataset.id);

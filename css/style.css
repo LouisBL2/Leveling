@@ -413,3 +413,16 @@ body.onboarding #app { padding-bottom: 24px; }
 .lock-note { color: #ffb3c0; margin: 4px 0 10px; }
 .q-meta .wait { color: #ffd34d; }
 .td-wait { margin-top: 10px; padding: 8px; font-size: 12px; color: #ffd34d; border: 1px dashed rgba(255, 211, 77, .45); text-align: center; }
+
+/* ---------- remplacement de quête ---------- */
+.modal .window.replace { max-width: 480px; }
+.repl-list { margin-top: 6px; }
+.repl-opt {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; cursor: pointer;
+  padding: 9px 10px; margin-bottom: 6px; background: var(--panel-2);
+  border: 0; border-left: 3px solid var(--c); border-top: 1px solid rgba(73, 198, 255, .1); border-bottom: 1px solid rgba(73, 198, 255, .1);
+}
+.repl-opt:hover, .repl-opt:active { background: rgba(31, 143, 255, .18); }
+.repl-opt .q-rank { width: 28px; height: 28px; font-size: 13px; }
+.repl-body { display: flex; flex-direction: column; min-width: 0; }
+.repl-body .q-title { font-size: 14px; }
