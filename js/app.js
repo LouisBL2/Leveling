@@ -8,10 +8,14 @@
   const { DIFF, PERIOD, DOMAINS, CATALOG, PENALTIES } = window.GAME;
   const { CLASSES, HYBRIDS, avatar, bossSprite } = window.PERSONA;
   const BOSSES = window.BOSSES;
+  const ACHIEVEMENTS = window.ACHIEVEMENTS;
+  const BOSS_DAYS = { mini: 21, big: 30 };     // délai pour vaincre un gardien apparu
+  const BOSS_FAIL_RATE = { mini: 0.35, big: 0.5 }; // part de need(L) perdue si le délai expire
+  const CHART_COLORS = { sport: '#2b9fd6', finance: '#b8891f', relation: '#d9468f' }; // palette validée (daltonisme, fond sombre)
   const REGEN_COOLDOWN = 7; // jours entre deux régénérations complètes
   const QUESTIONS = window.QUESTIONS;
   const KEY = 'leveling.system.v1';
-  const APP_VERSION = '12';
+  const APP_VERSION = '13';
   const DKEYS = ['sport', 'finance', 'relation'];
   const RANKS = ['E', 'D', 'C', 'B', 'A', 'S'];
   const PENALTY_RATE = 0.6;      // % de l'XP de la quête perdu si non faite
@@ -67,7 +71,11 @@
     settings: { pause: false, sound: true, volume: 0.7, music: true, musicVolume: 0.5 },
     changes: { day: '', add: 0, rem: 0, removedDone: [] },
     setupDay: '', lastRegen: '', persona: '',
-    bosses: { sport: [], finance: [], relation: [] }
+    bosses: { sport: [], finance: [], relation: [] },
+    history: [], achievements: {}, achInit: false,
+    stats: { questsDone: 0, penDone: 0, bossKills: 0, bigKills: 0, maxStreak: 0, challengesDone: 0, targetsDone: 0, customMade: 0, exports: 0 },
+    challenge: null, bossTimers: {}, lastPenaltyDay: '', lastExport: 0, lastExportPrompt: 0,
+    reminderHour: 20
   });
   let state;
   function load() {
@@ -84,14 +92,24 @@
     if (state.calibrated && !state.persona) state.persona = personaKey();
     state.bosses = Object.assign(def.bosses, state.bosses || {});
     if (!state.bossesInit) { markPassedBosses(); state.bossesInit = true; } // paliers déjà dépassés = vaincus
+    state.stats = Object.assign(def.stats, state.stats || {});
+    if (!Array.isArray(state.history)) state.history = [];
+    if (!state.achievements) state.achievements = {};
+    if (!state.bossTimers) state.bossTimers = {};
+    state.stats.maxStreak = Math.max(state.stats.maxStreak, state.streak || 0);
+    if (!state.lastExport) state.lastExport = state.created || Date.now();
+    state.quests.forEach((q) => { if (q.tgt && typeof q.prog !== 'number') q.prog = 0; });
+    // un boss déjà présent au moment de la mise à jour reçoit son délai à partir d'aujourd'hui
+    if (state.calibrated) DKEYS.forEach((d) => { const L = state.domains[d].level; if (sealed(d, L) && !state.bossTimers[d]) startBossTimer(d, L); });
   }
   function save() {
+    if (state.calibrated) { recordHistory(); checkAchievements(); }
     try { localStorage.setItem(KEY, JSON.stringify(state)); }
     catch (e) { toast('⚠ Impossible d\'enregistrer (stockage plein ou bloqué)', 'bad'); }
   }
   function log(k, m) { state.log.unshift({ t: Date.now(), k, m }); if (state.log.length > 400) state.log.length = 400; }
 
-  let ui = { tab: 'status', filter: 'all' };
+  let ui = { tab: 'status', filter: 'all', range: 30 };
 
   /* ---------------- XP & niveaux ---------------- */
   const overlayQueue = [];
@@ -111,6 +129,8 @@
     const b = bossAt(d, L);
     if (!b || defeated(d, L) || state.domains[d].level < L) return;
     state.bosses[d].push(L);
+    state.stats.bossKills++; if (b.big) state.stats.bigKills++;
+    delete state.bossTimers[d];
     const xp = bossReward(b);
     log('lvl', `${b.big ? 'BOSS' : 'Mini-boss'} vaincu : ${b.name} (${DOMAINS[d].label} niv. ${L}) · +${xp} XP`);
     overlayQueue.push({ type: 'bossWin', d, L, xp });
@@ -134,6 +154,7 @@
       if (isGate(D.level) && !defeated(d, D.level)) {
         const b = bossAt(d, D.level);
         log('pen', `${b.big ? 'BOSS' : 'Mini-boss'} apparu : ${b.name} (${DOMAINS[d].label} niv. ${D.level})`);
+        startBossTimer(d, D.level);
         overlayQueue.push({ type: 'bossAppear', d, L: D.level });
       }
     } else if (D.level < before) {
@@ -206,12 +227,100 @@
     log('info', `Quête ajoutée : « ${q.t} »`);
   }
 
+  /* ---------------- historique de progression ---------------- */
+  function recordHistory() {
+    const d = dk(new Date()), L = state.domains;
+    const e = { d, s: L.sport.level, f: L.finance.level, r: L.relation.level };
+    const last = state.history[state.history.length - 1];
+    if (last && last.d === d) Object.assign(last, e); else state.history.push(e);
+    if (state.history.length > 730) state.history.splice(0, state.history.length - 730);
+  }
+
+  /* ---------------- succès ---------------- */
+  function achContext() {
+    const lv = {}; DKEYS.forEach((d) => (lv[d] = state.domains[d].level));
+    const vals = Object.values(lv);
+    const since = state.lastPenaltyDay || dk(new Date(state.created || Date.now()));
+    return { st: state, lv, max: Math.max(...vals), min: Math.min(...vals), rank: tier(avgLevel()),
+      sCount: vals.filter((v) => v >= S_LEVEL).length, daysNoPen: cyclesBetween('daily', since, dk(new Date())) };
+  }
+  function checkAchievements() {
+    const x = achContext(), silent = !state.achInit;
+    ACHIEVEMENTS.forEach((a) => {
+      if (state.achievements[a.id]) return;
+      let ok = false; try { ok = a.test(x); } catch (e) { ok = false; }
+      if (!ok) return;
+      state.achievements[a.id] = Date.now();
+      if (!silent) { log('lvl', `Succès débloqué : « ${a.t} »`); overlayQueue.push({ type: 'ach', id: a.id }); }
+    });
+    state.achInit = true; // les succès déjà mérités avant la mise à jour sont débloqués sans fenêtre
+  }
+
+  /* ---------------- défi du jour (bonus, facultatif, XP ×2, sans pénalité) ---------------- */
+  function ensureChallenge() {
+    const today = dk(new Date());
+    if (state.challenge && state.challenge.day === today) return;
+    const active = new Set(state.quests.map((q) => q.cid).filter(Boolean));
+    let pool = CATALOG.filter((c) => c.p === 'daily' && !c.tgt && !active.has(c.cid) && state.domains[c.d].level >= c.lv[0] && state.domains[c.d].level <= c.lv[1] + 10);
+    if (!pool.length) pool = CATALOG.filter((c) => c.p === 'daily' && !c.tgt);
+    const c = pool[Math.floor(Math.random() * pool.length)];
+    state.challenge = { day: today, cid: c.cid, d: c.d, r: c.r, t: c.t, desc: c.desc, xp: questXP(c.r, 'daily') * 2, done: false };
+  }
+  function toggleChallenge() {
+    const c = state.challenge; if (!c) return;
+    c.done = !c.done;
+    if (c.done) {
+      addXP(c.d, c.xp); state.stats.challengesDone++;
+      log('ok', `Défi du jour relevé : « ${c.t} » (+${c.xp} XP ${DOMAINS[c.d].label})`);
+      toast(`Défi relevé · +${c.xp} XP`, 'good'); window.SFX.play('quest');
+    } else {
+      addXP(c.d, -c.xp); state.stats.challengesDone = Math.max(0, state.stats.challengesDone - 1);
+      log('info', `Défi du jour annulé (−${c.xp} XP)`);
+    }
+    checkPersona(); save(); render(); flushOverlays();
+  }
+
+  /* ---------------- quêtes à objectif chiffré ---------------- */
+  const fmtN = (v) => (Math.round(v * 100) / 100).toLocaleString('fr-FR');
+  function addProgress(id, amount) {
+    const q = state.quests.find((x) => x.id === id);
+    if (!q || !q.tgt || !isFinite(amount) || amount === 0) return;
+    q.prog = Math.max(0, Math.round(((q.prog || 0) + amount) * 100) / 100);
+    if (!q.done && q.prog >= q.tgt.n) { state.stats.targetsDone++; completeQuest(q); }
+    else if (q.done && q.prog < q.tgt.n) { state.stats.targetsDone = Math.max(0, state.stats.targetsDone - 1); uncompleteQuest(q); }
+    else toast(`${fmtN(q.prog)} / ${fmtN(q.tgt.n)} ${q.tgt.unit}`, 'good');
+    checkPersona(); save(); render(); flushOverlays();
+  }
+
+  /* ---------------- délai des boss ---------------- */
+  function startBossTimer(d, L) {
+    const b = bossAt(d, L); if (!b) return;
+    state.bossTimers[d] = { L, deadline: Date.now() + (b.big ? BOSS_DAYS.big : BOSS_DAYS.mini) * 864e5 };
+  }
+  function checkBossTimers(now, failedBosses) {
+    DKEYS.forEach((d) => {
+      const t = state.bossTimers[d]; if (!t) return;
+      if (defeated(d, t.L) || state.domains[d].level < t.L) { delete state.bossTimers[d]; return; }
+      if (now < t.deadline) return;
+      const b = bossAt(d, t.L);
+      if (state.settings.pause) { t.deadline = now + 864e5; return; }
+      const loss = Math.round(need(t.L) * (b.big ? BOSS_FAIL_RATE.big : BOSS_FAIL_RATE.mini));
+      addXP(d, -loss);
+      log('fail', `Délai expiré : ${b.name} n'a pas été vaincu (−${loss} XP ${DOMAINS[d].label})`);
+      failedBosses.push({ d, b, loss });
+      if (state.domains[d].level >= t.L) t.deadline = now + (b.big ? BOSS_DAYS.big : BOSS_DAYS.mini) * 864e5; // nouveau délai
+      else delete state.bossTimers[d];
+    });
+  }
+
   /* ---------------- quêtes ---------------- */
   function makeQuest(src) {
-    return {
+    const q = {
       id: uid(), cid: src.cid || null, d: src.d, p: src.p, r: src.r, t: src.t, desc: src.desc || '',
       xp: questXP(src.r, src.p), cycle: cycleKey(src.p), done: false, custom: !!src.custom
     };
+    if (src.tgt) { q.tgt = { n: src.tgt.n, unit: src.tgt.unit, step: src.tgt.step || 1 }; q.prog = 0; }
+    return q;
   }
   function recommend() {
     const picks = [];
@@ -262,6 +371,7 @@
         missed.push({ t: q.t, d: q.d, m, amt: Math.round(q.xp * PENALTY_RATE) * m });
       }
       q.cycle = cur; q.done = false;
+      if (q.tgt) q.prog = 0;
     });
 
     // quêtes de pénalité expirées
@@ -291,32 +401,40 @@
     if (belowThird) {
       const pick = PENALTIES[Math.floor(Math.random() * PENALTIES.length)];
       const stake = total > 0 ? loss : { sport: 30, finance: 30, relation: 30 };
-      pen = { id: uid(), t: pick.t, desc: pick.desc, created: now.getTime(), deadline: now.getTime() + PENALTY_DELAY, loss: stake,
+      state.lastPenaltyDay = dk(now);
+      pen = { id: uid(), t: pick.t(tier(avgLevel())), desc: pick.desc, created: now.getTime(), deadline: now.getTime() + PENALTY_DELAY, loss: stake,
         reason: `${dayDone}/${closedDaily.length} quêtes du jour validées (minimum : ${Math.ceil(closedDaily.length * 2 / 3)})` };
       state.penalties.push(pen);
       log('pen', `Moins de 2/3 des quêtes validées (${dayDone}/${closedDaily.length}) → Zone de pénalité : « ${pen.t} »`);
     }
+    const failedBosses = [];
+    checkBossTimers(now.getTime(), failedBosses);
+    ensureChallenge();
     checkPersona();
     save();
-    if (missed.length || pen || failed.length) showPenaltyAlert(missed, pen, failed);
+    if (missed.length || pen || failed.length || failedBosses.length) showPenaltyAlert(missed, pen, failed, failedBosses);
   }
 
+  function completeQuest(q) {
+    q.done = true;
+    addXP(q.d, q.xp);
+    state.stats.questsDone++;
+    log('ok', `Quête accomplie : « ${q.t} » (+${q.xp} XP ${DOMAINS[q.d].label})`);
+    toast(`+${q.xp} XP · ${DOMAINS[q.d].stat}`, 'good');
+    window.SFX.play('quest');
+    checkDailyBonus();
+  }
+  function uncompleteQuest(q) {
+    q.done = false;
+    addXP(q.d, -q.xp);
+    state.stats.questsDone = Math.max(0, state.stats.questsDone - 1);
+    log('info', `Quête annulée : « ${q.t} » (−${q.xp} XP)`);
+    if (q.p === 'daily') revokeDailyBonus();
+  }
   function toggleQuest(id) {
     const q = state.quests.find((x) => x.id === id);
-    if (!q) return;
-    if (!q.done) {
-      q.done = true;
-      addXP(q.d, q.xp);
-      log('ok', `Quête accomplie : « ${q.t} » (+${q.xp} XP ${DOMAINS[q.d].label})`);
-      toast(`+${q.xp} XP · ${DOMAINS[q.d].stat}`, 'good');
-      window.SFX.play('quest');
-      checkDailyBonus();
-    } else {
-      q.done = false;
-      addXP(q.d, -q.xp);
-      log('info', `Quête annulée : « ${q.t} » (−${q.xp} XP)`);
-      if (q.p === 'daily') revokeDailyBonus();
-    }
+    if (!q || q.tgt) return; // les quêtes chiffrées se valident en remplissant l'objectif
+    if (!q.done) completeQuest(q); else uncompleteQuest(q);
     checkPersona();
     save(); render(); flushOverlays();
   }
@@ -329,6 +447,7 @@
     const yesterday = dk(new Date(Date.now() - 864e5));
     state.streak = state.lastFullDay === yesterday ? state.streak + 1 : 1;
     state.lastFullDay = today;
+    state.stats.maxStreak = Math.max(state.stats.maxStreak, state.streak);
     const amt = 10 + 2 * Math.min(state.streak, 20);
     DKEYS.forEach((d) => addXP(d, amt));
     state.bonus = { day: today, amt, prev };
@@ -354,6 +473,7 @@
     const back = {};
     DKEYS.forEach((d) => { back[d] = Math.round((p.loss[d] || 0) * PENALTY_RECOVER); if (back[d]) addXP(d, back[d]); });
     state.penalties = state.penalties.filter((x) => x.id !== id);
+    state.stats.penDone++;
     const sum = DKEYS.reduce((s, d) => s + back[d], 0);
     log('ok', `Pénalité accomplie : « ${p.t} » (+${sum} XP récupérée)`);
     toast(`Pénalité accomplie · +${sum} XP récupérée`, 'good');
@@ -394,14 +514,14 @@
   function render() {
     if (!state.calibrated || state.onboarding.step !== 'done') return renderOnboarding();
     document.body.classList.remove('onboarding');
-    const tabs = { status: renderStatus, quests: renderQuests, catalog: renderCatalog, journal: renderJournal, settings: renderSettings };
+    const tabs = { status: renderStatus, today: renderToday, quests: renderQuests, catalog: renderCatalog, journal: renderJournal, settings: renderSettings };
     app().innerHTML = `<main class="screen">${(tabs[ui.tab] || renderStatus)()}</main>${renderNav()}`;
   }
 
   function renderNav() {
-    const items = [['status', '◈', 'Statut'], ['quests', '!', 'Quêtes'], ['catalog', '✚', 'Catalogue'], ['journal', '☰', 'Journal'], ['settings', '⚙', 'Système']];
+    const items = [['status', '◈', 'Statut'], ['today', '☀', 'Jour'], ['quests', '!', 'Quêtes'], ['catalog', '✚', 'Catalogue'], ['journal', '▲', 'Progrès'], ['settings', '⚙', 'Système']];
     const badge = state.penalties.length ? '<i class="dot"></i>' : '';
-    return `<nav class="nav">${items.map(([k, ic, l]) => `<button data-act="tab" data-v="${k}" class="${ui.tab === k ? 'on' : ''}"><span class="ic">${ic}</span>${l}${k === 'quests' ? badge : ''}</button>`).join('')}</nav>`;
+    return `<nav class="nav">${items.map(([k, ic, l]) => `<button data-act="tab" data-v="${k}" class="${ui.tab === k ? 'on' : ''}"><span class="ic">${ic}</span>${l}${k === 'quests' || k === 'today' ? badge : ''}</button>`).join('')}</nav>`;
   }
 
   function bar(v, max, color) {
@@ -510,6 +630,7 @@
         <div class="boss-name">${esc(b.name)}</div>
         <div class="boss-task">${esc(b.task)}</div>
         <div class="boss-meta">${ready ? `<b class="red-t">⚠ Bloque ta progression</b>` : `Apparaît dans ${left} niveau${left > 1 ? 'x' : ''}`} · Récompense +${bossReward(b)} XP</div>
+        ${ready && state.bossTimers[d] ? `<div class="boss-meta">⏳ Délai : <b class="cd red-t" data-until="${state.bossTimers[d].deadline}">${fmtLeft(state.bossTimers[d].deadline - Date.now())}</b> · sinon −${Math.round(need(b.lvl) * (b.big ? BOSS_FAIL_RATE.big : BOSS_FAIL_RATE.mini))} XP</div>` : ''}
       </div>
       ${ready ? `<button class="btn sm red" data-act="boss" data-d="${d}" data-l="${b.lvl}">Affronter</button>` : ''}
     </div>`;
@@ -523,9 +644,29 @@
         <div class="q-title">${esc(q.t)}</div>
         <div class="q-meta"><span style="color:${M.color}">${M.icon} ${M.label}</span> · +${q.xp} XP · <span class="pen">−${Math.round(q.xp * PENALTY_RATE)} si échec</span></div>
         ${q.desc ? `<div class="q-desc">${esc(q.desc)}</div>` : ''}
+        ${q.tgt ? `<div class="tgt">
+          <div class="tgt-bar"><i style="width:${Math.min(100, ((q.prog || 0) / q.tgt.n) * 100)}%"></i></div>
+          <div class="tgt-row"><span class="tgt-v"><b>${fmtN(q.prog || 0)}</b> / ${fmtN(q.tgt.n)} ${esc(q.tgt.unit)}</span>
+            <form class="tgt-form" data-id="${q.id}"><input name="v" type="number" inputmode="decimal" step="any" value="${q.tgt.step}" aria-label="Quantité à ajouter"><button class="btn sm" type="submit">+ Ajouter</button></form></div>
+        </div>` : ''}
       </div>
-      <button class="check" data-act="toggle" data-id="${q.id}" aria-label="${q.done ? 'Annuler' : 'Valider'}">${q.done ? '✔' : ''}</button>
+      ${q.tgt ? `<div class="check tgt-check" aria-hidden="true">${q.done ? '✔' : Math.floor(((q.prog || 0) / q.tgt.n) * 100) + '%'}</div>`
+        : `<button class="check" data-act="toggle" data-id="${q.id}" aria-label="${q.done ? 'Annuler' : 'Valider'}">${q.done ? '✔' : ''}</button>`}
     </div>`;
+  }
+  function challengeCard() {
+    ensureChallenge();
+    const c = state.challenge, M = DOMAINS[c.d];
+    return `<section class="window challenge" style="--c:${M.color}">
+      <div class="sys-head ch-head">✧ DÉFI DU JOUR ✧</div>
+      <div class="quest ${c.done ? 'done' : ''}" style="--c:${M.color}">
+        <div class="q-rank r-${c.r}">${c.r}</div>
+        <div class="q-body"><div class="q-title">${esc(c.t)}</div>
+          <div class="q-meta"><span style="color:${M.color}">${M.icon} ${M.label}</span> · <b class="ch-xp">+${c.xp} XP (×2)</b> · facultatif, sans pénalité</div></div>
+        <button class="check" data-act="challenge" aria-label="${c.done ? 'Annuler' : 'Valider'}">${c.done ? '✔' : ''}</button>
+      </div>
+      <div class="sec-info"><span>Nouveau défi dans</span><b class="cd" data-until="${nextReset('daily').getTime()}">${fmtLeft(nextReset('daily') - Date.now())}</b></div>
+    </section>`;
   }
 
   function renderQuests() {
@@ -553,7 +694,7 @@
     }).join('');
     const dl = state.quests.filter((q) => q.p === 'daily'), dd = dl.filter((q) => q.done).length, need3 = Math.ceil(dl.length * 2 / 3);
     const warn = dl.length ? `<p class="warn">${dd >= need3 ? '✔' : '⚠'} Quêtes du jour validées : <b>${dd}/${dl.length}</b> — minimum ${need3} pour éviter la Zone de pénalité. Chaque quête manquée coûte de l'XP.</p>` : '';
-    return `${pens}<div class="chips">${chips}</div>${warn}${sections}`;
+    return `${pens}${challengeCard()}<div class="chips">${chips}</div>${warn}${sections}`;
   }
 
   function renderCatalog() {
@@ -569,7 +710,7 @@
         return `<div class="cat-row ${on ? 'on' : ''}">
           <div class="q-rank r-${c.r}">${c.r}</div>
           <div class="q-body"><div class="q-title">${esc(c.t)}</div>
-            <div class="q-meta">${PERIOD[c.p].label} · +${questXP(c.r, c.p)} XP ${rec ? '· <span class="rec">recommandée</span>' : ''}</div></div>
+            <div class="q-meta">${PERIOD[c.p].label} · +${questXP(c.r, c.p)} XP${c.tgt ? ` · ◎ objectif ${fmtN(c.tgt.n)} ${esc(c.tgt.unit)}` : ''} ${rec ? '· <span class="rec">recommandée</span>' : ''}</div></div>
           <button class="btn sm ${on ? 'ghost' : ''}" data-act="cat" data-id="${c.cid}" ${(on ? canRem() : canAdd()) ? '' : 'disabled'}>${on ? 'Retirer' : 'Ajouter'}</button>
         </div>`;
       }).join('');
@@ -589,6 +730,9 @@
           <input name="t" maxlength="90" placeholder="Intitulé de la quête" required>
           <div class="row3"><select name="d">${dSel}</select><select name="p">${pSel}</select></div>
           <select name="r">${rSel}</select>
+          <details class="tgt-opt"><summary>Objectif chiffré (facultatif)</summary>
+            <div class="row3"><input name="tn" type="number" inputmode="decimal" step="any" min="0" placeholder="Cible, ex. 20"><input name="tu" maxlength="12" placeholder="Unité, ex. km"></div>
+          </details>
           <button class="btn" type="submit" ${canAdd() ? '' : 'disabled'}>Ajouter la quête</button>
         </form>
         ${custom.length ? `<div class="sub">Tes quêtes personnalisées</div>${custom.map((q) => `<div class="cat-row on"><div class="q-rank r-${q.r}">${q.r}</div><div class="q-body"><div class="q-title">${esc(q.t)}</div><div class="q-meta">${DOMAINS[q.d].label} · ${PERIOD[q.p].label} · +${q.xp} XP</div></div><button class="btn sm ghost" data-act="del" data-id="${q.id}" ${canRem() ? '' : 'disabled'}>Supprimer</button></div>`).join('')}` : ''}
@@ -601,13 +745,124 @@
       ${groups}`;
   }
 
+  /* ---------------- écran « Ma journée » ---------------- */
+  function renderToday() {
+    const now = new Date(), reset = nextReset('daily');
+    const dl = state.quests.filter((q) => q.p === 'daily'), dd = dl.filter((q) => q.done).length;
+    const need3 = Math.ceil(dl.length * 2 / 3), safe = dd >= need3;
+    const pct = dl.length ? (dd / dl.length) * 100 : 0, mark = dl.length ? (need3 / dl.length) * 100 : 0;
+    const dayName = now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+    const pens = state.penalties.map((p) => `<button class="window danger alert" data-act="tab" data-v="quests">⚠ Pénalité en cours : ${esc(p.t)} · <b class="cd" data-until="${p.deadline}">${fmtLeft(p.deadline - now)}</b></button>`).join('');
+    const running = state.quests.filter((q) => q.p !== 'daily' && q.tgt && !q.done);
+    // gardien le plus proche, toutes stats confondues
+    const near = DKEYS.map((d) => ({ d, b: nextBoss(d) })).filter((x) => x.b).sort((a, b) => (a.b.lvl - state.domains[a.d].level) - (b.b.lvl - state.domains[b.d].level))[0];
+    return `
+      ${pens}
+      <section class="window today-head">
+        <div class="sys-head">MA JOURNÉE</div>
+        <div class="td-date">${esc(dayName)}</div>
+        <div class="td-grid">
+          <div><div class="lbl">FIN DE JOURNÉE</div><div class="val"><b class="cd" data-until="${reset.getTime()}">${fmtLeft(reset - now)}</b></div></div>
+          <div><div class="lbl">SÉRIE</div><div class="val">${state.streak} j 🔥</div></div>
+        </div>
+        <div class="td-prog ${safe ? 'safe' : ''}">
+          <div class="td-bar"><i style="width:${pct}%"></i><span class="td-mark" style="left:${mark}%" title="Seuil 2/3"></span></div>
+          <div class="td-txt">${safe ? '✔ Seuil atteint' : `⚠ Encore ${need3 - dd} quête(s) pour éviter la pénalité`} · <b>${dd}/${dl.length}</b></div>
+        </div>
+      </section>
+      ${challengeCard()}
+      <section class="window"><div class="sys-head">QUÊTES DU JOUR</div>
+        ${dl.length ? dl.map(questCard).join('') : '<p class="muted center">Aucune quête quotidienne. Ajoute-en depuis le catalogue.</p>'}
+      </section>
+      ${running.length ? `<section class="window"><div class="sys-head">OBJECTIFS EN COURS</div>${running.map(questCard).join('')}</section>` : ''}
+      ${near ? `<section class="window"><div class="sys-head">PROCHAIN GARDIEN</div>${bossRow(near.d)}</section>` : ''}`;
+  }
+
+  /* ---------------- graphique de progression (1 axe, 3 séries, survol) ---------------- */
+  function progressChart() {
+    const all = state.history.slice();
+    const days = ui.range || 30;
+    const cutoff = days >= 9999 ? '' : dk(new Date(Date.now() - (days - 1) * 864e5));
+    const data = all.filter((e) => !cutoff || e.d >= cutoff);
+    const ranges = [[7, '7 j'], [30, '30 j'], [90, '90 j'], [9999, 'Tout']];
+    const chips = `<div class="chips chart-chips">${ranges.map(([v, l]) => `<button class="chip ${days === v ? 'on' : ''}" data-act="chart-range" data-v="${v}">${l}</button>`).join('')}</div>`;
+    const legend = `<div class="ch-legend">${DKEYS.map((d) => `<span><i style="background:${CHART_COLORS[d]}"></i>${DOMAINS[d].label}</span>`).join('')}</div>`;
+    if (data.length < 2) {
+      return `${chips}${legend}<p class="muted center tiny">La courbe se dessine jour après jour : reviens demain pour voir ta progression.</p>`;
+    }
+    const W = 340, H = 190, ml = 28, mr = 62, mt = 12, mb = 24;
+    const keys = { sport: 's', finance: 'f', relation: 'r' };
+    let lo = 100, hi = 0;
+    data.forEach((e) => DKEYS.forEach((d) => { lo = Math.min(lo, e[keys[d]]); hi = Math.max(hi, e[keys[d]]); }));
+    lo = Math.max(0, Math.floor((lo - 5) / 10) * 10); hi = Math.min(100, Math.ceil((hi + 5) / 10) * 10);
+    if (hi - lo < 20) hi = Math.min(100, lo + 20);
+    const n = data.length;
+    const x = (i) => ml + (i / (n - 1)) * (W - ml - mr);
+    const y = (v) => mt + (1 - (v - lo) / (hi - lo)) * (H - mt - mb);
+    let grid = '';
+    for (let v = lo; v <= hi; v += (hi - lo > 40 ? 20 : 10)) grid += `<line x1="${ml}" x2="${W - mr}" y1="${y(v)}" y2="${y(v)}" class="cg"/><text x="${ml - 6}" y="${y(v) + 3}" class="ct" text-anchor="end">${v}</text>`;
+    const fmtD = (k) => { const dt = fromDk(k); return `${dt.getDate()}/${dt.getMonth() + 1}`; };
+    const ticks = [0, Math.floor((n - 1) / 2), n - 1].filter((v, i, a) => a.indexOf(v) === i)
+      .map((i) => `<text x="${x(i)}" y="${H - 6}" class="ct" text-anchor="${i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle'}">${fmtD(data[i].d)}</text>`).join('');
+    const lines = DKEYS.map((d) => `<polyline points="${data.map((e, i) => `${x(i).toFixed(1)},${y(e[keys[d]]).toFixed(1)}`).join(' ')}" class="cl" style="stroke:${CHART_COLORS[d]}"/>`).join('');
+    // étiquettes directes en fin de courbe, écartées pour ne pas se chevaucher
+    const ends = DKEYS.map((d) => ({ d, v: data[n - 1][keys[d]], yy: y(data[n - 1][keys[d]]) })).sort((a, b) => a.yy - b.yy);
+    for (let i = 1; i < ends.length; i++) if (ends[i].yy - ends[i - 1].yy < 13) ends[i].yy = ends[i - 1].yy + 13;
+    const labels = ends.map((e) => `<circle cx="${x(n - 1)}" cy="${y(e.v)}" r="4" fill="${CHART_COLORS[e.d]}" class="cdot"/><text x="${x(n - 1) + 8}" y="${e.yy + 4}" class="cn">${DOMAINS[e.d].label} ${e.v}</text>`).join('');
+    const table = `<details class="ch-table"><summary>Voir les données</summary><table><thead><tr><th>Jour</th>${DKEYS.map((d) => `<th>${DOMAINS[d].label}</th>`).join('')}</tr></thead><tbody>${data.slice().reverse().map((e) => `<tr><td>${fmtD(e.d)}</td><td>${e.s}</td><td>${e.f}</td><td>${e.r}</td></tr>`).join('')}</tbody></table></details>`;
+    return `${chips}${legend}
+      <div class="chart" data-n="${n}" data-ml="${ml}" data-mr="${mr}" data-w="${W}">
+        <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Évolution des niveaux Sport, Finance et Relation">${grid}${ticks}${lines}${labels}
+          <line class="cx" x1="0" x2="0" y1="${mt}" y2="${H - mb}" style="display:none"/>
+        </svg>
+        <div class="ctip" style="display:none"></div>
+        <script type="application/json" class="cdata">${JSON.stringify(data.map((e) => [fmtD(e.d), e.s, e.f, e.r]))}</script>
+      </div>${table}`;
+  }
+  // survol / toucher : réticule + infobulle
+  function chartHover(e) {
+    const box = e.target.closest('.chart'); if (!box) return;
+    const svg = box.querySelector('svg'), r = svg.getBoundingClientRect();
+    const n = +box.dataset.n, ml = +box.dataset.ml, mr = +box.dataset.mr, W = +box.dataset.w;
+    const px = ((e.clientX - r.left) / r.width) * W;
+    const i = Math.max(0, Math.min(n - 1, Math.round(((px - ml) / (W - ml - mr)) * (n - 1))));
+    const data = JSON.parse(box.querySelector('.cdata').textContent), row = data[i];
+    const cx = ml + (i / (n - 1)) * (W - ml - mr);
+    const line = box.querySelector('.cx'); line.setAttribute('x1', cx); line.setAttribute('x2', cx); line.style.display = '';
+    const tip = box.querySelector('.ctip');
+    tip.innerHTML = `<b>${row[0]}</b>${DKEYS.map((d, k) => `<span><i style="background:${CHART_COLORS[d]}"></i>${DOMAINS[d].label} <b>${row[k + 1]}</b></span>`).join('')}`;
+    tip.style.display = '';
+    const left = (cx / W) * r.width;
+    tip.style.left = Math.min(r.width - tip.offsetWidth, Math.max(0, left - tip.offsetWidth / 2)) + 'px';
+  }
+  document.addEventListener('pointermove', chartHover);
+  document.addEventListener('pointerdown', chartHover);
+  document.addEventListener('pointerleave', (e) => {
+    const box = e.target.closest && e.target.closest('.chart'); if (!box) return;
+    box.querySelector('.cx').style.display = 'none'; box.querySelector('.ctip').style.display = 'none';
+  }, true);
+
+  function renderAchievements() {
+    const got = ACHIEVEMENTS.filter((a) => state.achievements[a.id]).length;
+    const cats = [...new Set(ACHIEVEMENTS.map((a) => a.cat))];
+    return `<section class="window"><div class="sys-head">SUCCÈS · ${got}/${ACHIEVEMENTS.length}</div>
+      ${bar(got, ACHIEVEMENTS.length, '#ffd34d')}
+      ${cats.map((c) => `<div class="gal-sec">${c.toUpperCase()}</div><div class="ach-grid">${ACHIEVEMENTS.filter((a) => a.cat === c).map((a) => {
+        const t = state.achievements[a.id];
+        return `<div class="ach ${t ? 'got' : ''}" title="${esc(a.desc)}"><div class="ach-ic">${t ? a.icon : '🔒'}</div><div class="ach-t">${esc(a.t)}</div><div class="ach-d">${esc(a.desc)}</div>${t ? `<div class="ach-date">${new Date(t).toLocaleDateString('fr-FR')}</div>` : ''}</div>`;
+      }).join('')}</div>`).join('')}
+    </section>`;
+  }
+
   function renderJournal() {
     const icons = { ok: '✔', fail: '✖', lvl: '▲', pen: '⚠', info: '•' };
     const rows = state.log.slice(0, 200).map((e) => {
       const d = new Date(e.t);
       return `<div class="log log-${e.k}"><span class="log-ic">${icons[e.k] || '•'}</span><div><div>${esc(e.m)}</div><small>${d.toLocaleDateString('fr-FR')} ${pad(d.getHours())}:${pad(d.getMinutes())}</small></div></div>`;
     }).join('');
-    return `<section class="window"><div class="sys-head">JOURNAL DU SYSTÈME</div>${rows || '<p class="muted center">Aucune entrée.</p>'}</section>`;
+    return `<section class="window"><div class="sys-head">PROGRESSION</div>${progressChart()}</section>
+      ${renderAchievements()}
+      <section class="window"><div class="sys-head">JOURNAL DU SYSTÈME</div>${rows || '<p class="muted center">Aucune entrée.</p>'}</section>`;
   }
 
   function renderSettings() {
@@ -629,7 +884,13 @@
         <p class="muted">Vacances, maladie, blessure : active le mode repos pour suspendre toutes les pénalités. Les quêtes continuent de se réinitialiser.</p>
         <button class="btn ${state.settings.pause ? 'red' : ''}" data-act="pause">${state.settings.pause ? 'Désactiver le mode repos' : 'Activer le mode repos'}</button>
       </section>
+      <section class="window"><div class="sys-head">RAPPEL QUOTIDIEN</div>
+        <p class="muted">Une app web ne peut pas envoyer de notification toute seule sans serveur. La solution fiable : un rappel quotidien dans le calendrier de ton téléphone, qui t'envoie une notification à l'heure choisie et ouvre l'app d'un appui.</p>
+        <div class="row2"><select id="remHour">${Array.from({ length: 24 }, (_, h) => `<option value="${h}" ${h === (state.reminderHour ?? 20) ? 'selected' : ''}>${pad(h)}:00</option>`).join('')}</select>
+        <button class="btn" data-act="reminder">Ajouter au calendrier</button></div>
+      </section>
       <section class="window"><div class="sys-head">SAUVEGARDE</div>
+        <p class="muted">Dernier export : <b>${state.lastExport ? `il y a ${Math.floor((Date.now() - state.lastExport) / 864e5)} jour(s)` : 'jamais'}</b> · Rappel automatique chaque semaine. ${state.persisted ? '🛡 Stockage protégé contre l\'effacement automatique.' : ''}</p>
         <p class="muted">Tes données sont stockées <b>uniquement dans ce navigateur</b>. Rien n'est envoyé sur GitHub ni ailleurs. Exporte une sauvegarde pour ne rien perdre ou pour transférer ta progression entre ton téléphone et ton ordinateur.</p>
         <div class="row2"><button class="btn" data-act="export">Exporter</button><button class="btn ghost" data-act="import">Importer</button></div>
         <input type="file" id="importFile" accept="application/json,.json" hidden>
@@ -769,6 +1030,14 @@
       }
       return;
     }
+    if (o.type === 'ach') {
+      const a = ACHIEVEMENTS.find((x) => x.id === o.id);
+      modal(`<div class="lvlup ach-pop"><div class="sys-head" style="color:#ffd34d">SUCCÈS DÉBLOQUÉ</div>
+        <div class="ach-ic big">${a.icon}</div>
+        <div class="p-title">${esc(a.t)}</div>
+        <p class="p-desc">${esc(a.desc)}</p></div>`, [{ label: 'Confirmer', primary: true }], 'levelup', 'achieve');
+      return;
+    }
     if (o.type === 'persona') {
       const P = persona(), PC = DOMAINS[P.dom].color;
       modal(`<div class="lvlup" style="--c:${PC}"><div class="sys-head" style="color:${P.hybrid ? '#ffd34d' : PC}">${P.hybrid ? 'STATUT HYBRIDE DÉBLOQUÉ' : 'NOUVEAU STATUT'}</div>
@@ -788,9 +1057,10 @@
       modal(`<div class="sys-head red">NIVEAU PERDU</div><p class="center big">${M.label} : ${o.from} → <b class="red-t">${o.to}</b></p><p class="center muted">Le Système ne tolère pas la faiblesse.</p>`, [{ label: 'Compris', primary: true, red: true }], 'danger', 'down');
     }
   }
-  function showPenaltyAlert(missed, pen, failed) {
+  function showPenaltyAlert(missed, pen, failed, failedBosses = []) {
     const list = missed.map((x) => `<li><span style="color:${DOMAINS[x.d].color}">${DOMAINS[x.d].icon}</span> ${esc(x.t)}${x.m > 1 ? ' ×' + x.m : ''} <b class="red-t">−${x.amt} XP</b></li>`).join('');
-    const fl = failed.map((p) => `<li>Pénalité non accomplie : « ${esc(p.t)} » <b class="red-t">−${DKEYS.reduce((s, d) => s + (p.loss[d] || 0), 0)} XP</b></li>`).join('');
+    const fl = failed.map((p) => `<li>Pénalité non accomplie : « ${esc(p.t)} » <b class="red-t">−${DKEYS.reduce((s, d) => s + (p.loss[d] || 0), 0)} XP</b></li>`).join('')
+      + failedBosses.map((x) => `<li>${DOMAINS[x.d].icon} Délai expiré : ${esc(x.b.name)} n'a pas été vaincu <b class="red-t">−${x.loss} XP</b></li>`).join('');
     modal(`<div class="sys-head red">AVERTISSEMENT</div>
       ${missed.length ? '<p class="center">Des quêtes n\'ont pas été accomplies dans le temps imparti.</p>' : ''}
       <ul class="pen-list">${list}${fl}</ul>
@@ -823,14 +1093,54 @@
   }
 
   /* ---------------- import / export ---------------- */
-  function doExport() {
+  async function doExport() {
+    state.lastExport = Date.now(); state.stats.exports++;
+    save();
+    const name = `leveling-sauvegarde-${dk(new Date())}.json`;
     const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+    try {
+      const file = new File([blob], name, { type: 'application/json' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: 'Sauvegarde Leveling' });
+        toast('Sauvegarde exportée', 'good'); render(); flushOverlays(); return;
+      }
+    } catch (e) { if (e && e.name === 'AbortError') return; }
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `leveling-sauvegarde-${dk(new Date())}.json`;
+    a.download = name;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-    toast('Sauvegarde exportée', 'good');
+    toast('Sauvegarde exportée', 'good'); render(); flushOverlays();
+  }
+  // rappel de sauvegarde hebdomadaire
+  function maybeExportReminder() {
+    if (!state.calibrated || state.onboarding.step !== 'done') return;
+    const last = Math.max(state.lastExport || 0, state.lastExportPrompt || 0);
+    if (Date.now() - last < 7 * 864e5) return;
+    state.lastExportPrompt = Date.now(); save();
+    const days = Math.floor((Date.now() - (state.lastExport || state.created)) / 864e5);
+    modal(`<div class="sys-head">SAUVEGARDE HEBDOMADAIRE</div>
+      <p class="center">Dernière sauvegarde il y a <b>${days} jour(s)</b>.</p>
+      <p class="center muted tiny">Tes données ne sont que sur cet appareil. Un export te protège en cas de perte du téléphone ou d'effacement du navigateur.</p>`,
+    [{ label: 'Exporter maintenant', primary: true }, { label: 'Plus tard' }]).then((i) => { if (i === 0) doExport(); });
+  }
+  // rappel quotidien : événement récurrent à ajouter au calendrier du téléphone
+  function downloadReminder() {
+    const h = Math.max(0, Math.min(23, state.reminderHour ?? 20));
+    const now = new Date(), st = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}T${pad(h)}0000`;
+    const stamp = now.toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
+    const url = location.origin + location.pathname.replace(/index\.html$/, '');
+    const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Leveling System//FR', 'CALSCALE:GREGORIAN', 'BEGIN:VEVENT',
+      `UID:leveling-rappel-${uid()}@leveling`, `DTSTAMP:${stamp}`, `DTSTART:${st}`, 'DURATION:PT15M', 'RRULE:FREQ=DAILY',
+      'SUMMARY:⚔ Leveling : quêtes du jour',
+      'DESCRIPTION:Valide au moins 2/3 de tes quêtes avant minuit pour éviter la Zone de pénalité.',
+      `URL:${url}`, 'BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:Quêtes du jour', 'TRIGGER:PT0M', 'END:VALARM',
+      'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+    const a = document.createElement('a');
+    a.href = 'data:text/calendar;charset=utf-8,' + encodeURIComponent(ics);
+    a.download = 'rappel-leveling.ics';
+    document.body.appendChild(a); a.click(); a.remove();
+    toast('Ouvre le fichier pour l\'ajouter à ton calendrier', 'good');
   }
   function doImport() {
     const inp = $('#importFile');
@@ -874,6 +1184,9 @@
         break;
       }
       case 'toggle': toggleQuest(el.dataset.id); break;
+      case 'challenge': toggleChallenge(); break;
+      case 'chart-range': ui.range = +el.dataset.v; render(); break;
+      case 'reminder': downloadReminder(); break;
       case 'penalty': {
         const ok = await modal('<div class="sys-head red">CONFIRMATION</div><p class="center">As-tu réellement accompli la quête de pénalité ?</p><p class="center muted tiny">Le Système te fait confiance. Ne triche qu\'avec toi-même.</p>', [{ label: 'Oui, accomplie', primary: true, red: true }, { label: 'Pas encore' }], 'danger');
         if (ok === 0) completePenalty(el.dataset.id);
@@ -977,8 +1290,16 @@
       const t = f.t.value.trim().slice(0, 90);
       if (!t) return;
       if (!canAdd()) { lockedMsg('add'); return; }
-      addQuest({ d: f.d.value, p: f.p.value, r: f.r.value, t, custom: true });
-      save(); toast('Quête ajoutée', 'good'); render();
+      const tn = parseFloat(f.tn.value), tu = f.tu.value.trim().slice(0, 12);
+      const tgt = tn > 0 ? { n: tn, unit: tu || 'fois', step: tn >= 20 ? Math.round(tn / 10) : 1 } : null;
+      addQuest({ d: f.d.value, p: f.p.value, r: f.r.value, t, custom: true, tgt });
+      state.stats.customMade++;
+      save(); toast('Quête ajoutée', 'good'); render(); flushOverlays();
+    }
+    if (f.classList.contains('tgt-form')) {
+      const v = parseFloat(String(f.v.value).replace(',', '.'));
+      if (!isFinite(v) || v === 0) { toast('Entre une quantité', 'bad'); return; }
+      addProgress(f.dataset.id, v);
     }
   });
 
@@ -999,6 +1320,7 @@
   document.addEventListener('change', (e) => {
     if (e.target.id === 'vol') { state.settings.volume = +e.target.value; applySound(); window.SFX.play('quest'); save(); }
     if (e.target.id === 'mvol') { state.settings.musicVolume = +e.target.value; applySound(); save(); }
+    if (e.target.id === 'remHour') { state.reminderHour = +e.target.value; save(); }
   });
 
   /* ---------------- démarrage ---------------- */
@@ -1008,6 +1330,12 @@
   render();
   evaluate();
   flushOverlays();
+  // demande au navigateur de ne pas effacer les données (silencieux)
+  if (navigator.storage && navigator.storage.persist) {
+    navigator.storage.persisted().then((p) => (p ? true : navigator.storage.persist())).then((ok) => { if (ok && !state.persisted) { state.persisted = true; save(); } }).catch(() => {});
+  }
+  // rappel de sauvegarde : attend que les autres fenêtres (pénalités, succès…) soient fermées
+  (function waitForCalm(n) { if (n > 60) return; if (document.querySelector('.modal') || overlayQueue.length) setTimeout(() => waitForCalm(n + 1), 2000); else maybeExportReminder(); })(0);
 
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
     // Vérifie s'il existe une nouvelle version à chaque ouverture et recharge automatiquement.

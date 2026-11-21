@@ -26,7 +26,8 @@
 
   let i = 0;
   const C = [];
-  const q = (d, p, r, lv, t, desc) => C.push({ cid: 'c' + (++i), d, p, r, lv, t, desc: desc || '' });
+  // tgt : objectif chiffré optionnel { n: valeur cible, unit: unité, step: pas de saisie }
+  const q = (d, p, r, lv, t, desc, tgt) => C.push({ cid: 'c' + (++i), d, p, r, lv, t, desc: desc || '', tgt: tgt || null });
 
   /* ---------------- SPORT ---------------- */
   q('sport', 'daily', 'E', [0, 35], 'Marcher 30 minutes', 'Marche active, sans t\'arrêter.');
@@ -101,21 +102,35 @@
   q('relation', 'monthly', 'A', [40, 100], 'Organiser un événement (anniversaire, sortie de groupe, week-end)');
   q('relation', 'monthly', 'A', [50, 100], 'Escapade / week-end avec partenaire ou amis');
 
+  /* ---------------- QUÊTES À OBJECTIF CHIFFRÉ ---------------- */
+  q('sport', 'daily', 'D', [0, 60], '100 pompes dans la journée', 'En autant de séries que tu veux.', { n: 100, unit: 'pompes', step: 10 });
+  q('sport', 'weekly', 'C', [0, 50], 'Courir 10 km dans la semaine', '', { n: 10, unit: 'km', step: 1 });
+  q('sport', 'weekly', 'B', [45, 100], 'Courir 25 km dans la semaine', '', { n: 25, unit: 'km', step: 1 });
+  q('sport', 'weekly', 'B', [40, 100], 'Nager 4 km dans la semaine', '', { n: 4, unit: 'km', step: 0.5 });
+  q('sport', 'weekly', 'A', [60, 100], 'Rouler 150 km dans la semaine', '', { n: 150, unit: 'km', step: 10 });
+  q('finance', 'weekly', 'D', [0, 100], 'Lire 70 pages finance / business', '', { n: 70, unit: 'pages', step: 10 });
+  q('finance', 'monthly', 'B', [0, 100], 'Épargner 300 € ce mois', '', { n: 300, unit: '€', step: 50 });
+  q('relation', 'weekly', 'C', [0, 100], 'Contacter 5 personnes de ton entourage', 'Appel, message sincère ou rencontre.', { n: 5, unit: 'personnes', step: 1 });
+  q('relation', 'monthly', 'B', [0, 100], 'Faire 4 sorties sociales ce mois', '', { n: 4, unit: 'sorties', step: 1 });
+
   /* ---------------- QUÊTES DE PÉNALITÉ ---------------- */
+  // Pénalités adaptées au rang global : chaque intitulé dépend de k = 0 (rang E) … 5 (rang S).
+  const V = (arr) => (k) => arr[Math.max(0, Math.min(5, k))];
   const PENALTIES = [
-    { t: '100 pompes', desc: 'En autant de séries que nécessaire, avant la fin du délai.' },
-    { t: '100 squats + 50 fentes', desc: 'Sans tricher sur l\'amplitude.' },
-    { t: '50 burpees', desc: 'Le Système ne pardonne pas.' },
-    { t: 'Course de 5 km', desc: 'Peu importe l\'allure, mais sans marcher.' },
-    { t: 'Gainage 5 min cumulées', desc: 'Planche, côtés, dos.' },
-    { t: 'Douche froide de 3 minutes', desc: 'Forge ta discipline.' },
-    { t: '24 h sans écran récréatif', desc: 'Ni réseaux sociaux, ni séries, ni jeux.' },
-    { t: '48 h sans aucune dépense non essentielle', desc: 'Seulement le strict nécessaire.' },
-    { t: 'Écrire une page de bilan sur l\'échec', desc: 'Pourquoi ? Qu\'est-ce que tu changes demain ?' },
-    { t: 'Ranger et nettoyer entièrement ton logement', desc: 'Environnement propre, esprit clair.' },
-    { t: '200 sauts à la corde + 50 pompes', desc: 'Pas d\'excuse.' },
-    { t: 'Appeler un proche que tu négliges', desc: 'Une vraie conversation, pas un message.' }
+    { t: (k) => `${V([20, 40, 60, 100, 150, 200])(k)} pompes`, desc: 'En autant de séries que nécessaire, avant la fin du délai.' },
+    { t: (k) => `${V([30, 50, 80, 100, 150, 200])(k)} squats + ${V([15, 25, 40, 50, 75, 100])(k)} fentes`, desc: 'Sans tricher sur l\'amplitude.' },
+    { t: (k) => `${V([10, 20, 30, 50, 75, 100])(k)} burpees`, desc: 'Le Système ne pardonne pas.' },
+    { t: (k) => `Course de ${V([1, 2, 3, 5, 8, 10])(k)} km`, desc: 'Peu importe l\'allure, mais sans marcher.' },
+    { t: (k) => `Gainage ${V([1, 2, 3, 5, 7, 10])(k)} min cumulées`, desc: 'Planche, côtés, dos.' },
+    { t: (k) => `Douche froide de ${V([1, 1, 2, 3, 4, 5])(k)} min`, desc: 'Forge ta discipline.' },
+    { t: (k) => `${V([12, 24, 24, 24, 36, 48])(k)} h sans écran récréatif`, desc: 'Ni réseaux sociaux, ni séries, ni jeux.' },
+    { t: (k) => `${V([24, 24, 48, 48, 72, 72])(k)} h sans aucune dépense non essentielle`, desc: 'Seulement le strict nécessaire.' },
+    { t: (k) => `Écrire ${V(['un paragraphe', 'une demi-page', 'une page', 'une page', 'deux pages', 'trois pages'])(k)} de bilan sur l'échec`, desc: 'Pourquoi ? Qu\'est-ce que tu changes demain ?' },
+    { t: () => 'Ranger et nettoyer entièrement ton logement', desc: 'Environnement propre, esprit clair.' },
+    { t: (k) => `${V([50, 100, 150, 200, 300, 400])(k)} sauts à la corde + ${V([10, 20, 30, 50, 70, 100])(k)} pompes`, desc: 'Pas d\'excuse.' },
+    { t: () => 'Appeler un proche que tu négliges', desc: 'Une vraie conversation, pas un message.' }
   ];
+
 
   window.GAME = { DIFF, PERIOD, DOMAINS, CATALOG: C, PENALTIES };
 })();

@@ -201,13 +201,13 @@ select option { background: #07122a; }
 /* ---------- navigation ---------- */
 .nav {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
-  display: grid; grid-template-columns: repeat(5, 1fr);
+  display: grid; grid-template-columns: repeat(6, 1fr);
   max-width: 560px; margin: 0 auto;
   padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
   background: rgba(4, 8, 18, 0.92); border-top: 1px solid rgba(73, 198, 255, 0.4);
   box-shadow: 0 -4px 20px rgba(31, 143, 255, 0.2); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
 }
-.nav button { position: relative; background: none; border: 0; padding: 6px 0; color: var(--muted); font-size: 10.5px; letter-spacing: 0.05em; cursor: pointer; }
+.nav button { position: relative; background: none; border: 0; padding: 6px 0; color: var(--muted); font-size: 10px; letter-spacing: 0.02em; cursor: pointer; }
 .nav .ic { display: block; font-size: 18px; line-height: 1.3; font-weight: 900; }
 .nav .on { color: var(--glow); text-shadow: 0 0 10px var(--glow); }
 .nav .dot { position: absolute; top: 4px; right: calc(50% - 16px); width: 8px; height: 8px; border-radius: 50%; background: var(--red); box-shadow: 0 0 8px var(--red); }
@@ -346,3 +346,65 @@ body.onboarding #app { padding-bottom: 24px; }
 /* ---------- réglage du volume ---------- */
 .vol { display: flex; align-items: center; gap: 12px; margin-top: 12px; font-size: 13px; color: var(--muted); }
 .vol input[type=range] { flex: 1; padding: 0; border: 0; background: none; accent-color: var(--glow); box-shadow: none; }
+
+/* ---------- quêtes à objectif chiffré ---------- */
+.tgt { margin-top: 8px; }
+.tgt-bar { height: 6px; background: rgba(73, 198, 255, .1); border: 1px solid rgba(73, 198, 255, .2); overflow: hidden; }
+.tgt-bar i { display: block; height: 100%; background: var(--c); box-shadow: 0 0 8px var(--c); transition: width .5s ease; }
+.tgt-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+.tgt-v { font-size: 12.5px; color: var(--muted); font-family: var(--mono); }
+.tgt-v b { color: var(--text); }
+.tgt-form { display: flex; gap: 6px; }
+.tgt-form input { width: 74px; padding: 6px 8px; font-size: 15px; }
+.tgt-check { display: grid; place-items: center; font-size: 11px; font-weight: 800; cursor: default; }
+.tgt-opt summary { cursor: pointer; color: var(--muted); font-size: 13px; padding: 4px 0; }
+.tgt-opt .row3 { margin-top: 8px; }
+
+/* ---------- défi du jour ---------- */
+.window.challenge { border-color: rgba(255, 211, 77, .55); box-shadow: 0 0 18px rgba(255, 211, 77, .25), inset 0 0 20px rgba(255, 211, 77, .08); }
+.window.challenge::before, .window.challenge::after { border-color: #ffd34d; filter: drop-shadow(0 0 4px #ffd34d); }
+.ch-head { color: #ffd34d; }
+.ch-xp { color: #ffd34d; }
+.challenge .sec-info { margin: 8px 0 0; }
+
+/* ---------- Ma journée ---------- */
+.td-date { text-align: center; font-size: 18px; font-weight: 800; text-transform: capitalize; margin-bottom: 10px; }
+.td-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 10px 0; border-top: 1px solid rgba(73, 198, 255, .2); border-bottom: 1px solid rgba(73, 198, 255, .2); }
+.td-prog { margin-top: 12px; }
+.td-bar { position: relative; height: 12px; background: rgba(255, 59, 92, .12); border: 1px solid rgba(255, 59, 92, .4); }
+.td-bar i { display: block; height: 100%; background: var(--red); box-shadow: 0 0 10px var(--red); transition: width .5s ease; }
+.td-prog.safe .td-bar { background: rgba(127, 224, 160, .1); border-color: rgba(127, 224, 160, .5); }
+.td-prog.safe .td-bar i { background: #7fe0a0; box-shadow: 0 0 10px #7fe0a0; }
+.td-mark { position: absolute; top: -4px; bottom: -4px; width: 2px; background: #fff; box-shadow: 0 0 6px #fff; }
+.td-txt { font-size: 12.5px; margin-top: 6px; text-align: center; color: #ffb3c0; }
+.td-prog.safe .td-txt { color: #7fe0a0; }
+
+/* ---------- graphique de progression ---------- */
+.chart-chips { justify-content: center; margin-bottom: 8px; }
+.ch-legend { display: flex; justify-content: center; gap: 14px; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.ch-legend i, .ctip i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.chart { position: relative; touch-action: pan-y; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.chart .cg { stroke: rgba(138, 165, 198, .14); stroke-width: 1; }
+.chart .ct { fill: var(--muted); font: 10px var(--mono); }
+.chart .cl { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart .cdot { stroke: #07122a; stroke-width: 2; }
+.chart .cn { fill: var(--text); font: 600 10.5px var(--font); }
+.chart .cx { stroke: rgba(217, 236, 255, .45); stroke-width: 1; stroke-dasharray: 3 3; }
+.ctip { position: absolute; top: 0; pointer-events: none; background: rgba(4, 8, 18, .95); border: 1px solid rgba(73, 198, 255, .5); padding: 6px 8px; font-size: 11.5px; display: grid; gap: 2px; white-space: nowrap; box-shadow: 0 0 10px rgba(31, 143, 255, .3); }
+.ch-table { margin-top: 8px; font-size: 12px; color: var(--muted); }
+.ch-table summary { cursor: pointer; }
+.ch-table table { width: 100%; border-collapse: collapse; margin-top: 6px; font-family: var(--mono); }
+.ch-table th, .ch-table td { padding: 3px 4px; text-align: right; border-bottom: 1px solid rgba(73, 198, 255, .1); }
+.ch-table th:first-child, .ch-table td:first-child { text-align: left; }
+
+/* ---------- succès ---------- */
+.ach-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.ach { padding: 8px; border: 1px solid rgba(138, 165, 198, .18); background: rgba(3, 8, 20, .55); opacity: .55; }
+.ach.got { opacity: 1; border-color: rgba(255, 211, 77, .5); box-shadow: 0 0 10px rgba(255, 211, 77, .15); }
+.ach-ic { font-size: 18px; }
+.ach.got .ach-ic { color: #ffd34d; text-shadow: 0 0 10px rgba(255, 211, 77, .7); }
+.ach-ic.big { font-size: 46px; color: #ffd34d; text-shadow: 0 0 18px rgba(255, 211, 77, .8); margin: 4px 0; }
+.ach-t { font-weight: 800; font-size: 12.5px; }
+.ach-d { font-size: 11px; color: var(--muted); line-height: 1.3; }
+.ach-date { font-size: 10px; color: #ffd34d; font-family: var(--mono); margin-top: 2px; }

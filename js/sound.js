@@ -203,6 +203,12 @@
       bell(N(63), 0.55, { vol: 0.06, dur: 1.8, ratio: 1.41, index: 1.1, pan: 0.2, wet: 0.7 });
       pad([N(45), N(51)], 0, { vol: 0.03, dur: 1.8, attack: 0.3, cutoff: 600 });
     },
+    // succès débloqué : petit carillon ascendant scintillant
+    achieve() {
+      [79, 84, 88, 91].forEach((n, i) => bell(N(n), i * 0.09, { vol: 0.08, dur: i === 3 ? 1.8 : 1.1, ratio: 3.5, index: 0.7, pan: -0.3 + i * 0.2 }));
+      swoosh(0.2, 0.8, 3000, 8000, { vol: 0.015, q: 2, wet: 0.5 });
+      pad([N(67), N(72), N(76)], 0.3, { vol: 0.03, dur: 1.8, attack: 0.3, cutoff: 2400 });
+    },
     // niveau perdu : cloches mineures qui descendent dans le grave
     down() {
       [79, 75, 72, 67].forEach((n, i) => bell(N(n), i * 0.16, { vol: 0.07, dur: 1.4, ratio: 2, index: 0.6, pan: 0.3 - i * 0.2, wet: 0.55 }));
@@ -222,6 +228,7 @@
     { root: 40, notes: [52, 55, 59, 62, 66] }   // Em9
   ];
   const CHORD = 9; // secondes par accord
+  const MUSIC_LEVEL = 0.6; // niveau de fond de la musique (abaissé)
   const Music = {
     timer: null, next: 0, idx: 0, playing: false,
     start() {
@@ -231,7 +238,7 @@
       this.next = ctx.currentTime + 0.1;
       musicOut.gain.cancelScheduledValues(ctx.currentTime);
       musicOut.gain.setValueAtTime(Math.max(musicOut.gain.value, 0.0001), ctx.currentTime);
-      musicOut.gain.exponentialRampToValueAtTime(Math.max(0.0001, SFX.musicVolume * 0.9), ctx.currentTime + 4);
+      musicOut.gain.exponentialRampToValueAtTime(Math.max(0.0001, SFX.musicVolume * MUSIC_LEVEL), ctx.currentTime + 4);
       this.tick();
       this.timer = setInterval(() => this.tick(), 500);
     },
@@ -268,7 +275,7 @@
     // baisse la musique pendant les grands effets (boss, rang…)
     duck(seconds) {
       if (!this.playing || !ctx) return;
-      const now = ctx.currentTime, v = Math.max(0.0001, SFX.musicVolume * 0.9);
+      const now = ctx.currentTime, v = Math.max(0.0001, SFX.musicVolume * MUSIC_LEVEL);
       musicOut.gain.cancelScheduledValues(now);
       musicOut.gain.setValueAtTime(Math.max(musicOut.gain.value, 0.0001), now);
       musicOut.gain.exponentialRampToValueAtTime(Math.max(0.0001, v * 0.25), now + 0.3);
@@ -288,10 +295,10 @@
     if (!SFX.music) { Music.stop(); return; }
     if (ctx && ctx.state === 'running') {
       if (!Music.playing) Music.start();
-      else { musicOut.gain.cancelScheduledValues(ctx.currentTime); musicOut.gain.setTargetAtTime(Math.max(0.0001, SFX.musicVolume * 0.9), ctx.currentTime, 0.2); }
+      else { musicOut.gain.cancelScheduledValues(ctx.currentTime); musicOut.gain.setTargetAtTime(Math.max(0.0001, SFX.musicVolume * MUSIC_LEVEL), ctx.currentTime, 0.2); }
     }
   };
-  const DUCK = { boss: 3.5, rankup: 4, victory: 3.5, levelup: 2.5, warn: 2.5, down: 2.5 };
+  const DUCK = { achieve: 2, boss: 3.5, rankup: 4, victory: 3.5, levelup: 2.5, warn: 2.5, down: 2.5 };
 
   SFX.play = function (name) {
     if (!SFX.enabled || !SOUNDS[name]) return;
